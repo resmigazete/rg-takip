@@ -8,9 +8,13 @@ on:
       date:
         description: "Tarih (YYYY-AA-GG). Boş bırakırsan bugün."
         required: false
+      backfill_days:
+        description: "Geçmişe dönük kaç gün doldurulsun (örn. 7). Boş bırakırsan yalnızca bugün."
+        required: false
 
 permissions:
   contents: write
+  pages: write
 
 concurrency:
   group: rg-daily
@@ -39,6 +43,17 @@ jobs:
       - name: Testler
         run: python -m pytest -q
 
+      - name: Geçmiş günleri doldur
+        if: ${{ github.event.inputs.backfill_days != '' }}
+        run: |
+          N="${{ github.event.inputs.backfill_days }}"
+          case "$N" in (*[!0-9]*) echo "Sayı girin"; exit 1;; esac
+          if [ "$N" -gt 30 ]; then N=30; fi
+          for i in $(seq "$N" -1 1); do
+            D=$(TZ=Europe/Istanbul date -d "$i days ago" +%F)
+            python main.py run --date "$D" --no-wait --no-send || echo "$D alınamadı"
+          done
+
       - name: Sayıyı bekle, işle, brifingi gönder
         run: |
           D="${{ github.event.inputs.date }}"
@@ -59,3 +74,9 @@ jobs:
             git commit -m "Veri güncellemesi $(TZ=Europe/Istanbul date +%F)"
             git push
           fi
+
+      - name: Pages yayınını tetikle
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api --method POST "repos/${{ github.repository }}/pages/builds"
