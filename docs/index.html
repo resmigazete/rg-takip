@@ -27,10 +27,9 @@
   .chips button.on { background:#fff; color:var(--brand); font-weight:650; }
   .tag.sb { background:var(--sb); color:#fff; font-weight:650; }
   .card { position:relative; }
-  .tags { padding-right:46px; }
-  .share { position:absolute; top:10px; right:10px; width:36px; height:36px; padding:0; border:0; border-radius:50%;
-           background:#25D366; display:flex; align-items:center; justify-content:center; }
-  .share svg { width:21px; height:21px; fill:#fff; }
+  .share { display:flex; margin:6px 0 0 auto; width:34px; height:34px; padding:0; border:0; border-radius:50%;
+           background:#25D366; align-items:center; justify-content:center; }
+  .share svg { width:20px; height:20px; fill:#fff; }
   .tag.d { background:transparent; border:1px solid var(--line); }
   main { padding:12px; }
   .card { --c:#64748b; --t1:#f8fafc; --t2:#e2e8f0; background:var(--t1); border:1px solid var(--t2); border-left:6px solid var(--c);
@@ -59,7 +58,8 @@
   nav { display:flex; gap:8px; padding:8px 10px 2px; }
   nav button { flex:1; border:1.5px solid var(--line); background:#f1f5f4; border-radius:14px; padding:7px 0 6px; font-size:13px;
                font-weight:650; color:var(--ink); display:flex; flex-direction:column; align-items:center; gap:2px; }
-  nav button .ic { font-size:22px; line-height:1; }
+  nav button .ic { font-size:22px; line-height:1; height:28px; display:flex; align-items:center; justify-content:center; }
+  nav button .ic svg { width:27px; height:27px; display:block; }
   nav button.on { background:var(--brand); border-color:var(--brand); color:#fff; }
   #foot { text-align:center; color:var(--mut); font-size:11px; padding:3px 8px 5px; }
   .empty { text-align:center; color:var(--mut); padding:40px 10px; }
@@ -83,7 +83,7 @@
 <div id="bottom">
   <nav>
     <button data-tab="health" class="on"><span class="ic">🩺</span>Sağlık</button>
-    <button data-tab="related"><span class="ic">🏥</span>İlgili</button>
+    <button data-tab="related"><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><mask id="hm"><rect width="24" height="24" fill="#fff"/><circle cx="13.4" cy="8.2" r="2.9" fill="#000"/></mask><rect x="3.5" y="3" width="17" height="19" rx="1.6" fill="#b9c4d0" stroke="#7d8a99" stroke-width="1.2"/><circle cx="11.9" cy="8.2" r="3.5" fill="#dc2626" mask="url(#hm)"/><g fill="#eef4f9"><rect x="6.3" y="12.6" width="3" height="2.6"/><rect x="10.5" y="12.6" width="3" height="2.6"/><rect x="14.7" y="12.6" width="3" height="2.6"/><rect x="6.3" y="16.4" width="3" height="2.6"/><rect x="14.7" y="16.4" width="3" height="2.6"/></g><rect x="10" y="17.2" width="4" height="4.8" fill="#7d8a99"/></svg></span>İlgili</button>
     <button data-tab="people"><span class="ic">👤</span>Atamalar</button>
     <button data-tab="other"><span class="ic">📄</span>Diğer</button>
   </nav>
@@ -97,7 +97,7 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt
 const KIND = {degisti:'değişti', eklendi:'eklendi', yururlukten_kalkti:'kaldırıldı'};
 let tab = 'health', prevTab = 'health', searching = false, data = null, multi = false;
 
-const APP_VERSION = '1.8.0', APP_DATE = '17.11.2026';
+const APP_VERSION = '1.8.5', APP_DATE = '17.11.2026';
 $('#foot').innerHTML = 'byRam ©ivelek · Sürüm ' + APP_VERSION + ' · ' + APP_DATE;
 
 const STATIC = window.RG_MODE === 'static';
@@ -175,14 +175,26 @@ const LEGEND = '<div class="legend"><span><i style="background:#2563eb"></i>Yön
   '<span><i style="background:#7c3aed"></i>Tebliğ</span><span><i style="background:#be185d"></i>Kanun/Karar</span>' +
   '<span><i style="background:#64748b"></i>Diğer</span><span class="bold">Koyu zemin + kalın çerçeve = önemli</span></div>';
 
+// Madde değişikliklerini türe göre gruplar: "Değişen: md. 4, 8 · Eklenen: md. 9 · Kaldırılan: md. 21"
+const AMEND_GROUPS = [['degisti', 'Değişen'], ['eklendi', 'Eklenen'], ['yururlukten_kalkti', 'Kaldırılan']];
+const artNo = ref => String(ref ?? '').replace(/^\s*md\.?\s*/i, '').replace(/\.?\s*madde\s*$/i, '').trim();
+const artSort = (a, b) => (parseInt(a, 10) || 0) - (parseInt(b, 10) || 0) || a.localeCompare(b, 'tr');
+function amendSummary(list) {
+  const parts = [];
+  for (const [kind, label] of AMEND_GROUPS) {
+    const nos = [...new Set(list.filter(a => a.change_kind === kind).map(a => artNo(a.article_ref)).filter(Boolean))].sort(artSort);
+    if (nos.length) parts.push(`${label}: md. ${esc(nos.join(', '))}`);
+  }
+  return parts.join(' · ');
+}
 function itemCard(i) {
-  const chg = (i.amendments || []).map(a => `${esc(a.article_ref)} (${KIND[a.change_kind] || ''})`).join(', ');
+  const chg = amendSummary(i.amendments || []);
   const sb = isSB(i);
   return `<div class="card ${tcls(i.type)}${i.importance >= 60 ? ' imp' : ''}"><a href="${esc(i.url)}" target="_blank" rel="noopener">
     <div class="tags">${multi && i.date ? `<span class="tag d">${trDate(i.date)}</span>` : ''}<span class="tag tt">${esc(i.type_label)}</span>${sb ? '<span class="tag sb">Sağlık Bakanlığı</span>' : ''}</div>
     <div class="title">${esc(i.title)}</div>
     ${i.issuer ? `<div class="mut">${esc(i.issuer)}</div>` : ''}
-    ${chg ? `<div class="chg">Değişen: ${chg}</div>` : ''}</a>
+    ${chg ? `<div class="chg">${chg}</div>` : ''}</a>
     ${shareBtn(i.title + (i.issuer ? '\n' + i.issuer : ''), i.url)}</div>`;
 }
 function appCard(a) {
