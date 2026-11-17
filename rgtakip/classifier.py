@@ -200,6 +200,11 @@ def classify(title: str, body: str = "", doc_type: str = "diger", issuer: str | 
         if "saglik_bakanligi" not in cats:
             cats.append("saglik_bakanligi")
         reasons.append(f"gövdede sağlık bakanlığı x{mentions}")
+    # Üniversite (ör. Sağlık Bilimleri Üniversitesi) Sağlık Bakanlığı'na bağlı değildir: başlık ya da kurum
+    # satırında bakanlık/bağlı kuruluş adı geçmiyorsa gövdedeki anmalar rozet vermesin
+    if ("saglik_bakanligi" in cats and is_university_issuer(il)
+            and not re.search(r"sağlık bakanlığ|" + AFFILIATE_PAT, t + " " + il)):
+        cats.remove("saglik_bakanligi")
     # Jeotermal/maden ruhsat ihalesi gibi sağlık dışı konular: kurum ya da başlıkta sağlık sinyali yoksa ele
     if (EXCLUDE_TITLE_RE.search(t) and not issuer_health
             and not AFFILIATE_RE.search(t + " " + il) and not STRONG_HEALTH_RE.search(t)):
