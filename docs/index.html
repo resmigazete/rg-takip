@@ -116,6 +116,7 @@ function itemCard(i) {
   return `<div class="card"><a href="${esc(i.url)}" target="_blank" rel="noopener">
     <span class="tag">${esc(i.type_label)}</span>${i.importance >= 60 ? '<span class="tag imp">Önemli</span>' : ''}
     <div class="title">${esc(i.title)}</div>
+    ${i.issuer ? `<div class="mut">${esc(i.issuer)}</div>` : ''}
     ${chg ? `<div class="chg">Değişen: ${chg}</div>` : ''}</a></div>`;
 }
 function appCard(a) {
