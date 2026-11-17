@@ -1,27 +1,30 @@
-// Kabuğu önbelleğe al (çevrimdışı açılış); API verisi her zaman ağdan, düşerse son yanıt.
-const SHELL = 'rg-shell-v4', DATA = 'rg-data-v1';
-const FILES = ['./', 'index.html', 'config.js', 'manifest.json', 'icon-192.png', 'icon-512.png'];
+// RG Sağlık Takip – service worker
+// Ağ öncelikli: önce güncel dosya alınır, çevrimdışıysa son kaydedilen kopya gösterilir.
+const CACHE = 'rg-1.8.7';
 
-self.addEventListener('install', e => {
-  e.waitUntil(caches.open(SHELL).then(c => c.addAll(FILES)));
-  self.skipWaiting();
-});
+self.addEventListener('install', () => self.skipWaiting());
+
 self.addEventListener('activate', e => {
-  e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => ![SHELL, DATA].includes(k)).map(k => caches.delete(k)))));
-  self.clients.claim();
+  e.waitUntil(
+    caches.keys()
+      .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
+      .then(() => self.clients.claim())
+  );
 });
+
 self.addEventListener('fetch', e => {
-  const u = new URL(e.request.url);
-  if (e.request.method !== 'GET' || u.origin !== location.origin) return;
-  if (u.pathname.includes('/api/') || u.pathname.includes('/data/')) {
-    e.respondWith(fetch(e.request).then(r => {
-      if (r.ok) { const cp = r.clone(); caches.open(DATA).then(c => c.put(e.request, cp)); }
-      return r;
-    }).catch(() => caches.match(e.request)));
-    return;
-  }
-  e.respondWith(fetch(e.request).then(r => {
-    if (r.ok) { const cp = r.clone(); caches.open(SHELL).then(c => c.put(e.request, cp)); }
-    return r;
-  }).catch(() => caches.match(e.request)));
+  const r = e.request, u = new URL(r.url);
+  // Yalnızca aynı siteden GET istekleri; sunucu API'si (yetkili veri) önbelleğe alınmaz.
+  if (r.method !== 'GET' || u.origin !== location.origin || u.pathname.startsWith('/api/')) return;
+  e.respondWith(
+    fetch(r, { cache: 'no-cache' })
+      .then(res => {
+        if (res.ok && res.status === 200) {
+          const copy = res.clone();
+          caches.open(CACHE).then(c => c.put(r, copy)).catch(() => {});
+        }
+        return res;
+      })
+      .catch(() => caches.match(r).then(m => m || (r.mode === 'navigate' ? caches.match('index.html') : null) || Response.error()))
+  );
 });
