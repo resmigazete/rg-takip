@@ -6,6 +6,7 @@
 """
 import argparse
 import logging
+import time
 from datetime import date, datetime
 
 from rgtakip import briefing, db, fetcher, notify, pipeline
@@ -26,8 +27,15 @@ def main():
 
     if a.cmd == "run":
         if a.no_wait:
-            r = fetcher.get(fetcher.index_url(d))
-            html = r.text if r is not None else None
+            html = None
+            for deneme in range(1, 5):  # bağlantı zaman aşımına karşı 4 deneme
+                try:
+                    r = fetcher.get(fetcher.index_url(d))
+                    html = r.text if r is not None else None
+                    break
+                except Exception as e:
+                    logging.warning("Sayı alınamadı (deneme %d/4): %s", deneme, type(e).__name__)
+                    time.sleep(20 * deneme)
         else:
             html = fetcher.wait_for_issue(d)
         if not html:
