@@ -1,4 +1,5 @@
 """SQLite şeması. Sonradan PostgreSQL'e taşımak kolay olsun diye düz SQL."""
+import os
 import sqlite3
 from . import config
 
@@ -18,6 +19,7 @@ CREATE TABLE IF NOT EXISTS items (
     section TEXT,                  -- bölüm / başlık grubu
     doc_type TEXT,                 -- kanun, yonetmelik, atama, ...
     title TEXT NOT NULL,
+    issuer TEXT DEFAULT '',        -- yayımlayan kurum ("Sağlık Bakanlığından:")
     body TEXT,
     is_health INTEGER DEFAULT 0,
     health_score INTEGER DEFAULT 0,
@@ -63,8 +65,14 @@ CREATE TABLE IF NOT EXISTS watches (
 
 
 def connect(path: str | None = None) -> sqlite3.Connection:
-    conn = sqlite3.connect(path or config.DB_PATH)
+    path = path or config.DB_PATH
+    if path != ":memory:" and os.path.dirname(path):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+    conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(SCHEMA)
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(items)")]
+    if "issuer" not in cols:  # eski veritabanlarını yükselt
+        conn.execute("ALTER TABLE items ADD COLUMN issuer TEXT DEFAULT ''")
     return conn
