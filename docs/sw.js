@@ -1,5 +1,5 @@
 // Kabuğu önbelleğe al (çevrimdışı açılış); API verisi her zaman ağdan, düşerse son yanıt.
-const SHELL = 'rg-shell-v3', DATA = 'rg-data-v1';
+const SHELL = 'rg-shell-v4', DATA = 'rg-data-v1';
 const FILES = ['./', 'index.html', 'config.js', 'manifest.json', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {
