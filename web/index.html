@@ -13,7 +13,7 @@
   :root { color-scheme: light; --bg:#f4f7f6; --card:#fff; --ink:#14201f; --mut:#5b6b69; --brand:#0f766e; --line:#e3e8e7; --warn:#b45309; --sb:#be123c; }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   body { margin:0; font:16px/1.45 -apple-system,system-ui,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--ink);
-         padding-bottom: calc(80px + env(safe-area-inset-bottom)); }
+         padding-bottom: calc(100px + env(safe-area-inset-bottom)); }
   header { position:sticky; top:0; z-index:5; background:var(--brand); color:#fff; padding:calc(10px + env(safe-area-inset-top)) 14px 10px; }
   header .top { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:8px; }
   header h1 { font-size:17px; margin:0; font-weight:650; }
@@ -56,11 +56,11 @@
   h2 { font-size:15px; margin:18px 4px 8px; color:var(--mut); font-weight:650; text-transform:uppercase; letter-spacing:.04em; }
   #bottom { position:fixed; bottom:0; left:0; right:0; background:var(--card); border-top:1px solid var(--line);
             box-shadow:0 -2px 10px rgba(0,0,0,.07); padding-bottom:env(safe-area-inset-bottom); }
-  nav { display:flex; gap:8px; padding:8px 10px 8px; }
+  nav { display:flex; gap:8px; padding:8px 10px 2px; }
   nav button { flex:1; min-height:48px; border:1.5px solid var(--line); background:#f1f5f4; border-radius:14px; padding:6px 4px; font-size:14px; line-height:1.15; text-align:center;
                font-weight:650; color:var(--ink); display:flex; align-items:center; justify-content:center; }
   nav button.on { background:var(--brand); border-color:var(--brand); color:#fff; }
-  #foot { text-align:center; color:var(--mut); font-size:11px; padding:6px 8px 14px; }
+  #foot { text-align:center; color:var(--mut); font-size:11px; padding:3px 8px 5px; }
   .empty { text-align:center; color:var(--mut); padding:40px 10px; }
   #q { width:100%; height:44px; border:1px solid var(--line); border-radius:12px; padding:0 12px; font-size:16px; background:var(--card); color:var(--ink); margin-bottom:10px; }
 </style>
@@ -79,7 +79,6 @@
   </div>
 </header>
 <main id="main"></main>
-<div id="foot"></div>
 <div id="bottom">
   <nav>
     <button data-tab="health" class="on">Sağlık Bakanlığı</button>
@@ -87,6 +86,7 @@
     <button data-tab="people">Atamalar</button>
     <button data-tab="other">Genel</button>
   </nav>
+  <div id="foot"></div>
 </div>
 
 <script src="config.js"></script>
@@ -96,7 +96,7 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt
 const KIND = {degisti:'değişti', eklendi:'eklendi', yururlukten_kalkti:'kaldırıldı'};
 let tab = 'health', prevTab = 'health', searching = false, data = null, multi = false;
 
-const APP_VERSION = '1.9.4', APP_DATE = '17.11.2026';
+const APP_VERSION = '1.9.5', APP_DATE = '17.11.2026';
 $('#foot').innerHTML = 'byRam ©ivelek · Sürüm ' + APP_VERSION + ' · ' + APP_DATE;
 
 const STATIC = window.RG_MODE === 'static';
