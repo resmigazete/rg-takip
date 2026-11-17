@@ -10,15 +10,27 @@ from dataclasses import dataclass, field
 
 from .textutil import tr_lower
 
+# Sağlık Bakanlığı'na bağlı / ilişkili kuruluşlar (rozet ve skor için "Sağlık Bakanlığı" sayılır)
+AFFILIATE_PAT = (r"türkiye sağlık enstitüleri|tüseb|tuseb"
+                 r"|uluslararası sağlık hizmetleri|ushaş|ushas"
+                 r"|türkiye ilaç ve tıbbi cihaz kurum|titck"
+                 r"|hudut ve sahiller sağlık")
+AFFILIATE_RE = re.compile(AFFILIATE_PAT)
+
+# Başlıkta geçerse (ve güçlü sağlık sinyali yoksa) sağlık dışı sayılan konular: jeotermal/maden ruhsat ihaleleri vb.
+EXCLUDE_TITLE_RE = re.compile(r"jeotermal|ruhsat sahas|maden|petrol|doğal gaz|taş ocağ|orman emval")
+STRONG_HEALTH_RE = re.compile(r"sağlık|hastane|tıbbi|ilaç|hekim|hasta\b|eczane")
+
 # (regex, ağırlık, kategori)
 HEALTH_RULES: list[tuple[str, int, str]] = [
     (r"sağlık bakanlığ", 40, "saglik_bakanligi"),
+    (AFFILIATE_PAT, 40, "saglik_bakanligi"),
     (r"türkiye ilaç ve tıbbi cihaz kurumu|titck", 40, "ilac_cihaz"),
     (r"sosyal güvenlik kurumu|sgk|geri ödeme listesi|sut\b|sağlık uygulama tebliği", 30, "sgk_odeme"),
     (r"türkiye halk sağlığı|halk sağlığı", 30, "halk_sagligi"),
-    (r"türkiye sağlık enstitüleri|tuseb", 35, "arastirma"),
+    (r"türkiye sağlık enstitüleri|tüseb|tuseb", 35, "arastirma"),
     (r"kamu hastaneler|şehir hastane|hastane", 25, "hastane_kurum"),
-    (r"ilaç|beşeri tıbbi|ruhsat|reçete", 25, "ilac_cihaz"),
+    (r"ilaç|beşeri tıbbi|reçete|(?:tıbbi|ilaç|ürün|eczane|hastane|sağlık|cihaz)\\w*\\s+ruhsat", 25, "ilac_cihaz"),
     (r"tıbbi cihaz|medikal|in vitro", 25, "ilac_cihaz"),
     (r"tıp fakülte|diş hekim|eczac|hemşire|ebe\b|ebelik|sağlık hizmetleri meslek", 25, "saglik_egitim"),
     (r"sağlık personel|hekim|uzman tabip|asistan|döner sermaye", 25, "saglik_personel"),
@@ -64,6 +76,7 @@ TYPE_BASE = {
 
 ORG_BOOST = [
     (r"sağlık bakanlığ", 15),
+    (AFFILIATE_PAT, 15),
     (r"cumhurbaşkan", 5),
     (r"sağlık uygulama tebliği|geri ödeme listesi", 15),
 ]
@@ -75,6 +88,7 @@ ISSUER_RE = re.compile(r"(?m)^[ \t]*([^\n:]{3,120}?(?:ndan|nden|dan|den|tan|ten)
 # Yayımlayan kurum sağlıkla doğrudan ilgiliyse (ağırlık)
 ISSUER_HEALTH = [
     (r"sağlık bakanlığ", 60),
+    (AFFILIATE_PAT, 60),
     (r"ilaç ve tıbbi cihaz kurum", 60),
     (r"halk sağlığı", 60),
     (r"sağlık enstitüleri|sağlık bilimleri|sağlık hizmetleri", 50),
@@ -186,6 +200,12 @@ def classify(title: str, body: str = "", doc_type: str = "diger", issuer: str | 
         if "saglik_bakanligi" not in cats:
             cats.append("saglik_bakanligi")
         reasons.append(f"gövdede sağlık bakanlığı x{mentions}")
+    # Jeotermal/maden ruhsat ihalesi gibi sağlık dışı konular: kurum ya da başlıkta sağlık sinyali yoksa ele
+    if (EXCLUDE_TITLE_RE.search(t) and not issuer_health
+            and not AFFILIATE_RE.search(t + " " + il) and not STRONG_HEALTH_RE.search(t)):
+        score = 0
+        cats = []
+        reasons.append("dışlandı:sağlık dışı konu")
     score = min(score, 100)
     is_health = score >= 25
 
