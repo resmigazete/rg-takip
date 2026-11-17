@@ -2,25 +2,34 @@
 from __future__ import annotations
 
 import logging
+import re
 import sqlite3
 from datetime import date
 from typing import Callable
 
-from . import amendments, appointments, classifier, fetcher, parser
+from . import amendments, appointments, classifier, fetcher, ilanlar, parser
 
 log = logging.getLogger(__name__)
 
 
 def process_issue(conn: sqlite3.Connection, d: date, index_html: str,
                   text_fetcher: Callable[[str], str] = fetcher.fetch_item_text,
-                  kind: str = "normal", fetch_bodies_for: str = "relevant") -> dict:
+                  kind: str = "normal", fetch_bodies_for: str = "relevant",
+                  force: bool = False,
+                  html_fetcher: Callable[[str], str] = ilanlar.fetch_html) -> dict:
     """fetch_bodies_for: 'relevant' = yalnızca başlıkta sağlık/atama ipucu olanların metnini çek,
-    'all' = hepsi. Tüm ilanları çekmek yavaştır; ilan türü 'ilan' olanlar atlanır."""
+    'all' = hepsi. İlanlar yalnızca başlığı sağlıkla ilgiliyse çekilir."""
     iso = d.isoformat()
     ih = fetcher.sha(index_html)
+    if force:
+        conn.execute("DELETE FROM amendments WHERE item_id IN (SELECT id FROM items WHERE issue_date=?)", (iso,))
+        conn.execute("DELETE FROM appointments WHERE item_id IN (SELECT id FROM items WHERE issue_date=?)", (iso,))
+        conn.execute("DELETE FROM items WHERE issue_date=?", (iso,))
+        conn.execute("DELETE FROM issues WHERE date=? AND kind=?", (iso, kind))
     row = conn.execute("SELECT index_hash FROM issues WHERE date=? AND kind=?", (iso, kind)).fetchone()
-    if row and row["index_hash"] == ih:
-        log.info("Sayı değişmemiş, atlanıyor.")
+    has_items = conn.execute("SELECT COUNT(*) FROM items WHERE issue_date=?", (iso,)).fetchone()[0] > 0
+    if row and row["index_hash"] == ih and has_items:
+        log.info("Sayı değişmemiş ve kayıtlı, atlanıyor.")
         return {"new": 0, "health": 0, "skipped": True}
     conn.execute("INSERT OR REPLACE INTO issues(date, kind, index_hash) VALUES (?,?,?)", (iso, kind, ih))
 
@@ -34,7 +43,10 @@ def process_issue(conn: sqlite3.Connection, d: date, index_html: str,
             fetch_bodies_for == "all"
             or it.doc_type in ("atama", "yonetmelik", "teblig", "kanun", "khk", "cb_karari", "cb_kararname", "kurul_karari")
             or title_cls.health_score >= 15
-        ) and it.doc_type != "ilan"
+        )
+        # İlanlar: yalnızca başlığı sağlıkla ilgiliyse ("Sağlık Bakanlığı ... ilanı") metni çek
+        if it.doc_type == "ilan":
+            need_body = title_cls.is_health and not re.search(r"main\.aspx|eskiilanlar", it.url)
         body = ""
         if need_body:
             try:
@@ -44,14 +56,20 @@ def process_issue(conn: sqlite3.Connection, d: date, index_html: str,
 
         res = classifier.classify(it.title, body, it.doc_type)
         cur = conn.execute(
-            """INSERT INTO items(issue_date,url,section,doc_type,title,body,is_health,
+            """INSERT INTO items(issue_date,url,section,doc_type,title,issuer,body,is_health,
                                  health_score,importance,categories)
-               VALUES (?,?,?,?,?,?,?,?,?,?)""",
-            (iso, it.url, it.section, it.doc_type, it.title, body, int(res.is_health),
+               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+            (iso, it.url, it.section, it.doc_type, it.title, res.issuer, body, int(res.is_health),
              res.health_score, res.importance, ",".join(res.categories)))
         item_id = cur.lastrowid
         stats["new"] += 1
         stats["health"] += int(res.is_health)
+
+        # İlan kategori sayfası (Çeşitli / İhale): içindeki ilanları tek tek ekle
+        if ilanlar.is_listing(it.title, it.doc_type):
+            sub = ilanlar.expand(conn, iso, it.title, it.url, html_fetcher, text_fetcher)
+            stats["new"] += sub["new"]
+            stats["health"] += sub["health"]
 
         if it.doc_type == "atama" or "atama" in it.title.lower():
             for a in appointments.extract(body or it.title):

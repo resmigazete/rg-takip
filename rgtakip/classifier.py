@@ -24,6 +24,12 @@ HEALTH_RULES: list[tuple[str, int, str]] = [
     (r"sağlık personel|hekim|uzman tabip|asistan|döner sermaye", 25, "saglik_personel"),
     (r"sağlık|tedavi|hasta\b|hastalık|aşı|bulaşıcı|salgın|epidemi|pandemi", 15, "genel_saglik"),
     (r"adli tıp", 25, "adli_tip"),
+    (r"diyaliz|hemodiyaliz|organ nakli|organ ve doku|kan ve kan ürünleri|kan merkez", 30, "tedavi_hizmeti"),
+    (r"ameliyat|cerrahi|poliklinik|klinik|yoğun bakım|ambulans|acil sağlık|112 acil", 25, "tedavi_hizmeti"),
+    (r"laboratuvar|radyoloji|görüntüleme merkez|tanı merkez|patoloji", 20, "tedavi_hizmeti"),
+    (r"psikiyatri|ruh sağlığı|rehabilitasyon|fizik tedavi|diş protez|ağız ve diş", 25, "tedavi_hizmeti"),
+    (r"tıbbi|tıp\b|tıbbî|eczane|eczacılık|beşeri|kozmetik|takviye edici|gıda takviye", 20, "ilac_cihaz"),
+    (r"nadir hastalık|kanser|diyabet|obezite|bağışıklama|aşılama|enfeksiyon", 25, "halk_sagligi"),
     (r"sosyal hizmet|engelli|yaşlı bakım|bakım merkezi", 10, "sosyal_hizmet"),
     (r"tütün|alkol|bağımlılık|uyuşturucu", 15, "halk_sagligi"),
     (r"gıda güvenli|gıda ve yem|veteriner", 10, "gida_veteriner"),
@@ -33,7 +39,7 @@ HEALTH_RULES: list[tuple[str, int, str]] = [
 TYPE_BASE = {
     "kanun": 60, "khk": 70, "cb_kararname": 60, "cb_karari": 45,
     "yonetmelik": 40, "teblig": 30, "atama": 35, "kurul_karari": 25,
-    "genelge": 30, "yonerge": 20, "yargi": 15, "ilan": 5, "diger": 10,
+    "genelge": 30, "yonerge": 20, "yargi": 15, "ilan": 20, "diger": 10,
 }
 
 ORG_BOOST = [
@@ -43,6 +49,63 @@ ORG_BOOST = [
 ]
 
 
+# Düzenleme sayfalarının başındaki "Sağlık Bakanlığından:" gibi yayımlayan kurum satırı
+ISSUER_RE = re.compile(r"(?m)^[ \t]*([^\n:]{3,120}?(?:ndan|nden|dan|den|tan|ten))[ \t]*:[ \t]*$")
+
+# Yayımlayan kurum sağlıkla doğrudan ilgiliyse (ağırlık)
+ISSUER_HEALTH = [
+    (r"sağlık bakanlığ", 60),
+    (r"ilaç ve tıbbi cihaz kurum", 60),
+    (r"halk sağlığı", 60),
+    (r"sağlık enstitüleri|sağlık bilimleri|sağlık hizmetleri", 50),
+    (r"kamu hastaneler|şehir hastane", 50),
+    (r"sosyal güvenlik kurum", 15),   # tek başına yetmez; SUT/geri ödeme sinyalleriyle birlikte
+]
+
+
+def normalize_issuer(raw: str) -> str:
+    t = " ".join(raw.split())
+    if t.endswith(("ndan", "nden")):
+        return t[:-4]
+    if t.endswith(("dan", "den", "tan", "ten")):
+        return t[:-3]
+    return t
+
+
+# Yedek: satırlar parçalanmışsa boşlukları birleştirip kurum adı kalıbını ara
+ISSUER_FALLBACK = re.compile(
+    r"((?:[A-ZÇĞİÖŞÜ][^\s:]*\s+){0,7}?(?:[A-ZÇĞİÖŞÜ][^\s:]*\s+){0,2}"
+    r"[A-ZÇĞİÖŞÜ]?[^\s:]*(?:Bakanlığ|Kurum|Başkanlığ|Kurul|Müdürlüğ|Üniversite|Banka|Enstitü|Meclis|Teşkilat|Rektörlüğ)[^\s:]*(?:ndan|nden))\s*:")
+
+
+def _strip_heading_caps(text: str) -> str:
+    """'YÖNETMELİK Sağlık Bakanlığı' -> 'Sağlık Bakanlığı' (baştaki tamamı büyük harfli başlık kelimeleri)."""
+    toks = text.split()
+    while toks and len(toks[0]) > 3 and toks[0].isupper():
+        toks.pop(0)
+    return " ".join(toks)
+
+
+def extract_issuer(body: str) -> str:
+    """Sayfanın ilk bölümünden 'X'ndan:' satırını bulur, 'X' biçiminde döndürür."""
+    if not body:
+        return ""
+    line_hit = ""
+    m = ISSUER_RE.search(body[:2500])
+    if m:
+        line_hit = normalize_issuer(m.group(1))
+        if " " in line_hit.strip():  # çok sözcüklü ve tam satırsa güvenilir
+            return line_hit
+    # Satır tek sözcük kaldıysa (parçalanmış metin) ya da hiç yoksa: birleştirilmiş metinde ara
+    flat = " ".join(body[:1500].split())
+    m = ISSUER_FALLBACK.search(flat)
+    if m:
+        cand = _strip_heading_caps(m.group(1))
+        if cand:
+            return normalize_issuer(cand)
+    return line_hit
+
+
 @dataclass
 class Result:
     is_health: bool
@@ -50,9 +113,10 @@ class Result:
     importance: int
     categories: list[str] = field(default_factory=list)
     reasons: list[str] = field(default_factory=list)
+    issuer: str = ""
 
 
-def classify(title: str, body: str = "", doc_type: str = "diger") -> Result:
+def classify(title: str, body: str = "", doc_type: str = "diger", issuer: str | None = None) -> Result:
     # Başlıkta geçen eşleşme gövdeden iki kat değerli
     t = tr_lower(title)
     b = tr_lower(body[:6000])  # ilk bölüm yeterli, hız için kırp
@@ -70,6 +134,32 @@ def classify(title: str, body: str = "", doc_type: str = "diger") -> Result:
             if cat not in cats:
                 cats.append(cat)
             reasons.append(f"{cat}:{'başlık' if in_title else 'metin'}")
+    # Yayımlayan kurum (en güvenilir sinyal)
+    if issuer is None:
+        issuer = extract_issuer(body)
+        if not issuer and doc_type == "ilan":
+            # İlan başlıkları genelde "Sağlık Bakanlığı ... Başhekimliğinden" gibi kurumla başlar
+            issuer = extract_issuer(title.strip() + ":\n")
+            if not issuer and re.search(r"sağlık bakanlığ", t):
+                issuer = "Sağlık Bakanlığı"
+    issuer_health = False
+    il = tr_lower(issuer)
+    for pat, w in ISSUER_HEALTH:
+        if re.search(pat, il):
+            score += w
+            issuer_health = issuer_health or w >= 50
+            reasons.append(f"yayımlayan:{issuer}")
+            if "saglik_bakanligi" not in cats and w >= 50:
+                cats.append("saglik_bakanligi")
+            break
+
+    # Gövdede "Sağlık Bakanlığı" sık geçiyorsa başlık sağlık kelimesi taşımasa da sağlıkla ilgilidir
+    mentions = len(re.findall(r"sağlık bakanlığ", b))
+    if mentions >= 3:
+        score += 25
+        if "saglik_bakanligi" not in cats:
+            cats.append("saglik_bakanligi")
+        reasons.append(f"gövdede sağlık bakanlığı x{mentions}")
     score = min(score, 100)
     is_health = score >= 25
 
@@ -80,8 +170,10 @@ def classify(title: str, body: str = "", doc_type: str = "diger") -> Result:
         for pat, bonus in ORG_BOOST:
             if re.search(pat, t):
                 importance += bonus
+        if issuer_health and not re.search(r"sağlık bakanlığ", t):
+            importance += 15
         # değişiklik yönetmeliği ana düzenleme kadar kritik değil ama yine de önemli
         if "değişiklik yapılmasına dair" in t:
             importance -= 5
     importance = max(0, min(importance, 100))
-    return Result(is_health, score, importance, cats, reasons)
+    return Result(is_health, score, importance, cats, reasons, issuer)
