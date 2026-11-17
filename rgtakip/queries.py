@@ -51,9 +51,9 @@ def search(conn: sqlite3.Connection, q: str) -> dict:
 
 
 def search_index(conn: sqlite3.Connection, limit_items: int = 6000) -> dict:
-    """Tarayıcıda arama için hafif dizin (sağlıkla ilgili olmayan ilanlar yok, gövde yok, yalnızca başlık/kişi/kurum)."""
+    """Tarayıcıda arama için hafif dizin (ilan gövdesi yok, yalnızca başlık/kişi/kurum)."""
     items = [item_dict(r) for r in conn.execute(
-        "SELECT * FROM items WHERE doc_type!='ilan' OR is_health=1 ORDER BY issue_date DESC, id DESC LIMIT ?", (limit_items,))]
+        "SELECT * FROM items WHERE doc_type!='ilan' ORDER BY issue_date DESC, id DESC LIMIT ?", (limit_items,))]
     for i in items:
         i.pop("categories", None)
         i.pop("id", None)
