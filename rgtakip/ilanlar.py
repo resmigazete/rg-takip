@@ -9,12 +9,12 @@ from __future__ import annotations
 import logging
 import re
 import sqlite3
-import urllib.request
+import time
 from html.parser import HTMLParser
 from typing import Callable
 from urllib.parse import parse_qs, urljoin, urlparse
 
-from . import classifier
+from . import classifier, fetcher
 from .textutil import tr_lower
 
 log = logging.getLogger(__name__)
@@ -94,14 +94,16 @@ def resolve_url(url: str) -> str:
 
 
 def fetch_html(url: str) -> str:
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (rg-takip)"})
-    with urllib.request.urlopen(req, timeout=30) as r:
-        raw = r.read()
-        cs = r.headers.get_content_charset() or "utf-8"
-    try:
-        return raw.decode(cs, errors="replace")
-    except LookupError:
-        return raw.decode("utf-8", errors="replace")
+    """Sayfayı fetcher.get ile çeker (Türkçe karakter kodlamasını doğru çözer, geçici hatada 3 kez dener)."""
+    last: Exception | None = None
+    for deneme in range(3):
+        try:
+            r = fetcher.get(url)
+            return r.text if r is not None else ""
+        except Exception as e:  # zaman aşımı vb.
+            last = e
+            time.sleep(10 * (deneme + 1))
+    raise last  # type: ignore[misc]
 
 
 def is_listing(title: str, doc_type: str) -> bool:
