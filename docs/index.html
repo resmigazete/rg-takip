@@ -10,7 +10,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-180.png">
 <style>
-  :root { color-scheme: light; --bg:#fff; --card:#fff; --ink:#14201f; --mut:#5b6b69; --brand:#0f766e; --line:#e3e8e7; --warn:#b45309; --sb:#be123c; }
+  :root { color-scheme: light; --bg:#f4f7f6; --card:#fff; --ink:#14201f; --mut:#5b6b69; --brand:#0f766e; --line:#e3e8e7; --warn:#b45309; --sb:#be123c; }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   body { margin:0; font:16px/1.45 -apple-system,system-ui,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--ink);
          padding-bottom: calc(104px + env(safe-area-inset-bottom)); }
@@ -25,23 +25,24 @@
   .chips { display:flex; gap:6px; margin-top:8px; }
   .chips button { background:rgba(255,255,255,.18); color:#fff; border:0; border-radius:99px; padding:4px 12px; font-size:13px; }
   .chips button.on { background:#fff; color:var(--brand); font-weight:650; }
-  .tag.sb { background:var(--sb); color:#fff; font-weight:650; }
+  .tag.sb { background:var(--brand); color:#fff; font-weight:650; }
   .card { position:relative; }
   .share { display:flex; margin:6px 0 0 auto; width:34px; height:34px; padding:0; border:0; border-radius:50%;
            background:#25D366; align-items:center; justify-content:center; }
   .share svg { width:20px; height:20px; fill:#fff; }
   .tag.d { background:transparent; border:1px solid var(--line); }
   main { padding:12px; }
-  .card { --c:#64748b; --t1:#f8fafc; --t2:#e2e8f0; background:var(--t1); border:1px solid var(--t2); border-left:6px solid var(--c);
+  .card { --c:#64748b; --t1:#f8fafc; --t2:#e2e8f0; --d:#475569; background:#fff; border:1px solid var(--line); border-left:6px solid var(--c);
           border-radius:14px; padding:12px 14px; margin-bottom:10px; }
-  .card.imp { background:var(--t2); border-color:var(--c); border-width:2px 2px 2px 8px; }
-  .t-yonetmelik { --c:#2563eb; --t1:#eff6ff; --t2:#cfe0ff; }
-  .t-ilan       { --c:#d97706; --t1:#fffaf0; --t2:#fde3b0; }
-  .t-teblig     { --c:#7c3aed; --t1:#f6f2ff; --t2:#ddd0fb; }
-  .t-kanun      { --c:#be185d; --t1:#fff1f7; --t2:#fbc9dd; }
-  .t-atama      { --c:#0f766e; --t1:#effaf8; --t2:#bfeae4; }
-  .t-diger      { --c:#64748b; --t1:#f8fafc; --t2:#dfe5ec; }
-  .tag.tt { background:var(--c); color:#fff; font-weight:650; }
+  .card.imp { box-shadow:0 0 0 1.5px var(--warn); }
+  .tag.star { background:#fef3c7; color:#92400e; font-weight:650; }
+  .t-yonetmelik { --c:#2563eb; --t1:#eff6ff; --t2:#cfe0ff; --d:#1e40af; }
+  .t-ilan       { --c:#d97706; --t1:#fffaf0; --t2:#fde3b0; --d:#92400e; }
+  .t-teblig     { --c:#7c3aed; --t1:#f6f2ff; --t2:#ddd0fb; --d:#5b21b6; }
+  .t-kanun      { --c:#be185d; --t1:#fff1f7; --t2:#fbc9dd; --d:#9d174d; }
+  .t-atama      { --c:#0f766e; --t1:#effaf8; --t2:#bfeae4; --d:#115e59; }
+  .t-diger      { --c:#64748b; --t1:#f8fafc; --t2:#dfe5ec; --d:#475569; }
+  .tag.tt { background:var(--t2); color:var(--d); font-weight:650; }
   .note { font-size:13px; color:var(--mut); background:#f1f5f4; border-radius:10px; padding:8px 10px; margin:0 0 10px; }
   .legend { display:flex; flex-wrap:wrap; gap:6px 12px; font-size:12px; color:var(--mut); margin:0 2px 10px; align-items:center; }
   .legend i { display:inline-block; width:11px; height:11px; border-radius:3px; margin-right:4px; vertical-align:-1px; }
@@ -97,7 +98,7 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt
 const KIND = {degisti:'değişti', eklendi:'eklendi', yururlukten_kalkti:'kaldırıldı'};
 let tab = 'health', prevTab = 'health', searching = false, data = null, multi = false;
 
-const APP_VERSION = '1.8.5', APP_DATE = '17.11.2026';
+const APP_VERSION = '1.8.7', APP_DATE = '17.11.2026';
 $('#foot').innerHTML = 'byRam ©ivelek · Sürüm ' + APP_VERSION + ' · ' + APP_DATE;
 
 const STATIC = window.RG_MODE === 'static';
@@ -173,7 +174,7 @@ const TCLS = {yonetmelik:'yonetmelik', ilan:'ilan', teblig:'teblig', kanun:'kanu
 const tcls = t => 't-' + (TCLS[t] || 'diger');
 const LEGEND = '<div class="legend"><span><i style="background:#2563eb"></i>Yönetmelik</span><span><i style="background:#d97706"></i>İlan</span>' +
   '<span><i style="background:#7c3aed"></i>Tebliğ</span><span><i style="background:#be185d"></i>Kanun/Karar</span>' +
-  '<span><i style="background:#64748b"></i>Diğer</span><span class="bold">Koyu zemin + kalın çerçeve = önemli</span></div>';
+  '<span><i style="background:#64748b"></i>Diğer</span></div>';
 
 // Madde değişikliklerini türe göre gruplar: "Değişen: md. 4, 8 · Eklenen: md. 9 · Kaldırılan: md. 21"
 const AMEND_GROUPS = [['degisti', 'Değişen'], ['eklendi', 'Eklenen'], ['yururlukten_kalkti', 'Kaldırılan']];
@@ -191,7 +192,7 @@ function itemCard(i) {
   const chg = amendSummary(i.amendments || []);
   const sb = isSB(i);
   return `<div class="card ${tcls(i.type)}${i.importance >= 60 ? ' imp' : ''}"><a href="${esc(i.url)}" target="_blank" rel="noopener">
-    <div class="tags">${multi && i.date ? `<span class="tag d">${trDate(i.date)}</span>` : ''}<span class="tag tt">${esc(i.type_label)}</span>${sb ? '<span class="tag sb">Sağlık Bakanlığı</span>' : ''}</div>
+    <div class="tags">${multi && i.date ? `<span class="tag d">${trDate(i.date)}</span>` : ''}<span class="tag tt">${esc(i.type_label)}</span>${sb ? '<span class="tag sb">Sağlık Bakanlığı</span>' : ''}${i.importance >= 60 ? '<span class="tag star">★ Önemli</span>' : ''}</div>
     <div class="title">${esc(i.title)}</div>
     ${i.issuer ? `<div class="mut">${esc(i.issuer)}</div>` : ''}
     ${chg ? `<div class="chg">${chg}</div>` : ''}</a>
@@ -201,7 +202,7 @@ function appCard(a) {
   const verb = a.action === 'gorevden_alma' ? 'görevden alındı' : 'atandı';
   const icon = {Vali:'🏛', 'Rektör':'🎓'}[a.new_role] || '•';
   return `<div class="card t-atama${a.is_health ? ' imp' : ''}"><a href="${esc(a.url)}" target="_blank" rel="noopener">
-    <div class="tags">${multi && a.date ? `<span class="tag d">${trDate(a.date)}</span>` : ''}<span class="tag">${icon} ${esc(a.new_role || 'Görev')}</span>${a.is_health ? '<span class="tag imp">Sağlık</span>' : ''}</div>
+    <div class="tags">${multi && a.date ? `<span class="tag d">${trDate(a.date)}</span>` : ''}<span class="tag">${icon} ${esc(a.new_role || 'Görev')}</span>${a.is_health ? '<span class="tag imp">Sağlık</span><span class="tag star">★ Önemli</span>' : ''}</div>
     <div class="title">${esc(a.institution)}</div>
     <div>${esc(a.person)} ${verb}</div>
     ${a.predecessor ? `<div class="mut">Yerine: ${esc(a.predecessor)}</div>` : ''}</a>
