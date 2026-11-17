@@ -35,6 +35,26 @@ HEALTH_RULES: list[tuple[str, int, str]] = [
     (r"gıda güvenli|gıda ve yem|veteriner", 10, "gida_veteriner"),
 ]
 
+# Üniversite hastanesi / tıp fakültesi hastanesi ibareleri (başlıkta da metinde de tam ağırlık)
+UNIV_HOSPITAL_RE = re.compile(
+    r"üniversite(?:si)?\s+(?:tıp\s+fakültesi\s+)?hastane"
+    r"|tıp\s+fakültesi\s+hastane"
+    r"|(?:uygulama\s+ve\s+araştırma|eğitim\s+ve\s+araştırma)\s+hastane"
+    r"|sağlık\s+uygulama\s+ve\s+araştırma\s+merkez"
+    r"|diş\s+hekimliği\s+(?:fakülte|uygulama)"
+    r"|hastanesi\s+başhekim|başhekimliğ"
+    r"|hastane\s+yönetim"
+)
+UNIV_HOSPITAL_W = 30
+
+# Kurum satırı üniversite/rektörlük ise ilanın metni de kontrol edilir (başlık "sağlık" taşımasa da)
+UNIVERSITY_ISSUER_RE = re.compile(r"üniversite|rektörlüğ")
+
+
+def is_university_issuer(text: str) -> bool:
+    return UNIVERSITY_ISSUER_RE.search(tr_lower(text)) is not None
+
+
 # Doküman türüne göre taban önem
 TYPE_BASE = {
     "kanun": 60, "khk": 70, "cb_kararname": 60, "cb_karari": 45,
@@ -134,6 +154,12 @@ def classify(title: str, body: str = "", doc_type: str = "diger", issuer: str | 
             if cat not in cats:
                 cats.append(cat)
             reasons.append(f"{cat}:{'başlık' if in_title else 'metin'}")
+    # Üniversite hastanesi ibaresi: başlıkta ya da metinde geçmesi yeterli (ilan, yönetmelik vb.)
+    if UNIV_HOSPITAL_RE.search(t) or UNIV_HOSPITAL_RE.search(b):
+        score += UNIV_HOSPITAL_W
+        if "universite_hastanesi" not in cats:
+            cats.append("universite_hastanesi")
+        reasons.append("universite_hastanesi")
     # Yayımlayan kurum (en güvenilir sinyal)
     if issuer is None:
         issuer = extract_issuer(body)

@@ -139,7 +139,8 @@ def expand(conn: sqlite3.Connection, iso: str, parent_title: str, parent_url: st
         title = f"{subject} — {issuer_line}" if subject else issuer_line
         first = classifier.classify(title, "", "ilan", issuer=issuer)
         body = ""
-        if first.is_health:
+        # Üniversite ilanlarında başlık "sağlık" geçmez; "Üniversitesi Hastanesi" ibaresi için metne bak
+        if first.is_health or classifier.is_university_issuer(issuer_line):
             try:
                 body = text_fetcher(url)
             except Exception as e:

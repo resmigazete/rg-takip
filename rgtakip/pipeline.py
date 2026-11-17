@@ -46,7 +46,8 @@ def process_issue(conn: sqlite3.Connection, d: date, index_html: str,
         )
         # İlanlar: yalnızca başlığı sağlıkla ilgiliyse ("Sağlık Bakanlığı ... ilanı") metni çek
         if it.doc_type == "ilan":
-            need_body = title_cls.is_health and not re.search(r"main\.aspx|eskiilanlar", it.url)
+            need_body = (title_cls.is_health or classifier.is_university_issuer(it.title)) \
+                and not re.search(r"main\.aspx|eskiilanlar", it.url)
         body = ""
         if need_body:
             try:
