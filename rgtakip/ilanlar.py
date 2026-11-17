@@ -12,7 +12,7 @@ import sqlite3
 import urllib.request
 from html.parser import HTMLParser
 from typing import Callable
-from urllib.parse import urljoin
+from urllib.parse import parse_qs, urljoin, urlparse
 
 from . import classifier
 from .textutil import tr_lower
@@ -74,12 +74,23 @@ def parse_listing(html: str, base_url: str) -> list[tuple[str, str, str]]:
             continue
         if not href or href.startswith(("#", "javascript")):
             continue
-        url = urljoin(base_url, href)
+        url = resolve_url(urljoin(base_url, href))
         if url in seen or url.rstrip("/") == base_url.rstrip("/"):
             continue
         seen.add(url)
         out.append((text.rstrip(": ").strip(), url, _clean_subject(prev)))
     return out
+
+
+def resolve_url(url: str) -> str:
+    """Fihristteki ilan bağlantıları 'main.aspx?home=...&main=<gerçek adres>' sarmalayıcısıdır;
+    gerçek sayfa 'main' parametresindedir."""
+    if "main.aspx" in url.lower():
+        q = parse_qs(urlparse(url).query)
+        real = (q.get("main") or [""])[0]
+        if real:
+            return real
+    return url
 
 
 def fetch_html(url: str) -> str:
@@ -111,6 +122,7 @@ def expand(conn: sqlite3.Connection, iso: str, parent_title: str, parent_url: st
            html_fetcher: Callable[[str], str], text_fetcher: Callable[[str], str]) -> dict:
     """Kategori sayfasındaki her ilanı ayrı kayıt olarak ekler. Yalnızca sağlıkla ilgili olanın metni çekilir."""
     stats = {"new": 0, "health": 0}
+    parent_url = resolve_url(parent_url)
     try:
         listing = parse_listing(html_fetcher(parent_url), parent_url)
     except Exception as e:
