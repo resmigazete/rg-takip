@@ -1,6 +1,6 @@
 // Kabuğu önbelleğe al (çevrimdışı açılış); API verisi her zaman ağdan, düşerse son yanıt.
-const SHELL = 'rg-shell-v2', DATA = 'rg-data-v1';
-const FILES = ['./', 'index.html', 'config.js', 'manifest.json', 'icon-192.png'];
+const SHELL = 'rg-shell-v3', DATA = 'rg-data-v1';
+const FILES = ['./', 'index.html', 'config.js', 'manifest.json', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(SHELL).then(c => c.addAll(FILES)));
