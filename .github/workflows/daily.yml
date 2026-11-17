@@ -51,14 +51,15 @@ jobs:
           if [ "$N" -gt 30 ]; then N=30; fi
           for i in $(seq "$N" -1 1); do
             D=$(TZ=Europe/Istanbul date -d "$i days ago" +%F)
-            python main.py run --date "$D" --no-wait --no-send || echo "$D alınamadı"
+            python main.py run --date "$D" --no-wait --no-send --force || echo "$D alınamadı"
           done
 
       - name: Sayıyı bekle, işle, brifingi gönder
         run: |
           D="${{ github.event.inputs.date }}"
-          if [ -z "$D" ]; then D=$(TZ=Europe/Istanbul date +%F); fi
-          python main.py run --date "$D"
+          F=""
+          if [ -z "$D" ]; then D=$(TZ=Europe/Istanbul date +%F); else F="--force"; fi
+          python main.py run --date "$D" $F
 
       - name: Statik siteyi üret
         run: python -m rgtakip.export
