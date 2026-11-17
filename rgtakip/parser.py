@@ -17,6 +17,19 @@ from . import config
 # /eskiler/2026/11/20261116-12.htm, ...M1-3.htm, .pdf
 ITEM_HREF = re.compile(r"\d{8}(?:M\d+)?-\d+\.(?:htm|html|pdf)$", re.I)
 
+# Kısa biçim: https://site/20261113-1.htm (ya da göreli 20261113-1.htm). Sitede bu adres günün ana sayfasına gider;
+# gerçek yer arşiv klasörüdür: /eskiler/YYYY/AA/20261113-1.htm
+SHORT_URL = re.compile(r"^(https?://[^/]+)/((\d{4})(\d{2})\d{2}(?:M\d+)?-\d+\.(?:htm|html|pdf))$", re.I)
+
+
+def canonical_url(url: str) -> str:
+    m = SHORT_URL.match(url)
+    if not m:
+        return url
+    host, name, yyyy, mm = m.group(1), m.group(2), m.group(3), m.group(4)
+    return f"{host}/eskiler/{yyyy}/{mm}/{name}"
+
+
 HEADING_TAGS = {"h1", "h2", "h3", "h4", "h5", "h6"}
 
 SECTION_TO_TYPE = [
@@ -94,7 +107,7 @@ def parse_index(html: str, base: str | None = None) -> list[Item]:
             href = el.get("href", "")
             if not ITEM_HREF.search(href):
                 continue
-            url = urljoin(base + "/", href)
+            url = canonical_url(urljoin(base + "/", href))
             if url in seen:
                 continue
             seen.add(url)
