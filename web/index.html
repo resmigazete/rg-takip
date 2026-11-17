@@ -20,6 +20,7 @@
   #searchBtn { background:rgba(255,255,255,.18); color:#fff; border:0; border-radius:10px; width:40px; height:36px; font-size:18px; flex:none; }
   .datebar { display:flex; align-items:center; gap:8px; }
   .datebar button { background:rgba(255,255,255,.18); color:#fff; border:0; border-radius:10px; width:40px; height:36px; font-size:18px; }
+  .datebar button:disabled { opacity:.4; }
   .datebar label { flex:1; min-width:0; display:flex; flex-direction:column; font-size:11px; opacity:.9; }
   .datebar input { width:100%; min-width:0; height:34px; border:0; border-radius:10px; padding:0 6px; font-size:14px; text-align:center; margin-top:2px; }
   .chips { display:flex; gap:6px; margin-top:8px; }
@@ -34,8 +35,7 @@
   main { padding:12px; }
   .card { --c:#64748b; --t1:#f8fafc; --t2:#e2e8f0; --d:#475569; background:#fff; border:1px solid var(--line); border-left:6px solid var(--c);
           border-radius:14px; padding:12px 14px; margin-bottom:10px; }
-  .card.imp { box-shadow:0 0 0 1.5px var(--warn); }
-  .tag.star { background:#fef3c7; color:#92400e; font-weight:650; }
+  .card.imp { box-shadow:0 6px 18px rgba(15,23,42,.14), 0 1px 3px rgba(15,23,42,.10); }
   .t-yonetmelik { --c:#2563eb; --t1:#eff6ff; --t2:#cfe0ff; --d:#1e40af; }
   .t-ilan       { --c:#d97706; --t1:#fffaf0; --t2:#fde3b0; --d:#92400e; }
   .t-teblig     { --c:#7c3aed; --t1:#f6f2ff; --t2:#ddd0fb; --d:#5b21b6; }
@@ -77,7 +77,7 @@
     <button id="next" aria-label="Sonraki dönem">›</button>
   </div>
   <div class="chips" id="chips">
-    <button data-n="1">Bugün</button><button data-n="7">Son 7 gün</button><button data-n="30">Son 30 gün</button>
+    <button data-n="1">Bugün</button><button data-n="1" data-o="1">Dün</button><button data-n="7">Son 7 gün</button>
   </div>
 </header>
 <main id="main"></main>
@@ -98,7 +98,7 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt
 const KIND = {degisti:'değişti', eklendi:'eklendi', yururlukten_kalkti:'kaldırıldı'};
 let tab = 'health', prevTab = 'health', searching = false, data = null, multi = false;
 
-const APP_VERSION = '1.8.7', APP_DATE = '17.11.2026';
+const APP_VERSION = '1.9.1', APP_DATE = '17.11.2026';
 $('#foot').innerHTML = 'byRam ©ivelek · Sürüm ' + APP_VERSION + ' · ' + APP_DATE;
 
 const STATIC = window.RG_MODE === 'static';
@@ -152,14 +152,20 @@ const trDate = iso => iso.split('-').reverse().join('.');
 function range() {
   let a = $('#from').value || $('#to').value || latest, b = $('#to').value || a;
   if (a > b) [a, b] = [b, a];
+  const t = today(); if (b > t) b = t; if (a > t) a = t;   // ileri tarih seçilemez
   if (dayCount(a, b) > MAX_DAYS) a = addDays(b, -(MAX_DAYS - 1));
   return [a, b];
 }
 function setRange(a, b) { $('#from').value = a; $('#to').value = b; markChip(); load(); }
-function shift(dir) { const [a, b] = range(), n = dayCount(a, b); setRange(addDays(a, dir * n), addDays(b, dir * n)); }
+function shift(dir) {
+  const [a, b] = range(), n = dayCount(a, b), t = today();
+  if (dir > 0 && b >= t) return;
+  let nb = addDays(b, dir * n); if (nb > t) nb = t;
+  setRange(addDays(nb, -(n - 1)), nb);
+}
 function markChip() {
   const [a, b] = range(), n = dayCount(a, b);
-  document.querySelectorAll('#chips button').forEach(x => x.classList.toggle('on', b === latest && +x.dataset.n === n));
+  document.querySelectorAll('#chips button').forEach(x => x.classList.toggle('on', b === addDays(latest, -(+x.dataset.o || 0)) && +x.dataset.n === n));
 }
 
 // Sağlık Bakanlığı ile ilgili mi? (yayımlayan kurum, başlık ya da sınıflandırma kategorisi)
@@ -192,7 +198,7 @@ function itemCard(i) {
   const chg = amendSummary(i.amendments || []);
   const sb = isSB(i);
   return `<div class="card ${tcls(i.type)}${i.importance >= 60 ? ' imp' : ''}"><a href="${esc(i.url)}" target="_blank" rel="noopener">
-    <div class="tags">${multi && i.date ? `<span class="tag d">${trDate(i.date)}</span>` : ''}<span class="tag tt">${esc(i.type_label)}</span>${sb ? '<span class="tag sb">Sağlık Bakanlığı</span>' : ''}${i.importance >= 60 ? '<span class="tag star">★ Önemli</span>' : ''}</div>
+    <div class="tags">${multi && i.date ? `<span class="tag d">${trDate(i.date)}</span>` : ''}<span class="tag tt">${esc(i.type_label)}</span>${sb ? '<span class="tag sb">Sağlık Bakanlığı</span>' : ''}</div>
     <div class="title">${esc(i.title)}</div>
     ${i.issuer ? `<div class="mut">${esc(i.issuer)}</div>` : ''}
     ${chg ? `<div class="chg">${chg}</div>` : ''}</a>
@@ -202,7 +208,7 @@ function appCard(a) {
   const verb = a.action === 'gorevden_alma' ? 'görevden alındı' : 'atandı';
   const icon = {Vali:'🏛', 'Rektör':'🎓'}[a.new_role] || '•';
   return `<div class="card t-atama${a.is_health ? ' imp' : ''}"><a href="${esc(a.url)}" target="_blank" rel="noopener">
-    <div class="tags">${multi && a.date ? `<span class="tag d">${trDate(a.date)}</span>` : ''}<span class="tag">${icon} ${esc(a.new_role || 'Görev')}</span>${a.is_health ? '<span class="tag imp">Sağlık</span><span class="tag star">★ Önemli</span>' : ''}</div>
+    <div class="tags">${multi && a.date ? `<span class="tag d">${trDate(a.date)}</span>` : ''}<span class="tag">${icon} ${esc(a.new_role || 'Görev')}</span>${a.is_health ? '<span class="tag imp">Sağlık</span>' : ''}</div>
     <div class="title">${esc(a.institution)}</div>
     <div>${esc(a.person)} ${verb}</div>
     ${a.predecessor ? `<div class="mut">Yerine: ${esc(a.predecessor)}</div>` : ''}</a>
@@ -229,6 +235,7 @@ async function load() {
   data = null; render();
   const [a, b] = range();
   $('#from').value = a; $('#to').value = b; markChip();
+  $('#from').max = $('#to').max = today(); $('#next').disabled = b >= today();
   multi = a !== b;
   const days = [];
   for (let d = b; d >= a; d = addDays(d, -1)) days.push(d);   // yeniden eskiye
@@ -284,7 +291,7 @@ document.addEventListener('click', e => {
 $('#prev').onclick = () => shift(-1); $('#next').onclick = () => shift(1);
 $('#from').onchange = () => { if ($('#to').value < $('#from').value) $('#to').value = $('#from').value; load(); };
 $('#to').onchange = () => { if ($('#from').value > $('#to').value) $('#from').value = $('#to').value; load(); };
-document.querySelectorAll('#chips button').forEach(b => b.onclick = () => setRange(addDays(latest, -(+b.dataset.n - 1)), latest));
+document.querySelectorAll('#chips button').forEach(b => b.onclick = () => { const e = addDays(latest, -(+b.dataset.o || 0)); setRange(addDays(e, -(+b.dataset.n - 1)), e); });
 (async () => {
   if (STATIC) {
     try {
