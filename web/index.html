@@ -78,7 +78,7 @@ async function api(path) {
   if (STATIC) {
     if (path.startsWith('/api/day/')) {
       const d = path.split('/').pop();
-      return (await getJSON('data/day/' + d + '.json', true)) || {date: d, health: [], appointments: [], others: []};
+      return (await getJSON('data/day/' + d + '.json', true)) || {date: d, missing: true, health: [], appointments: [], others: []};
     }
     if (path.startsWith('/api/search')) {
       const q = trLower(decodeURIComponent(path.split('q=')[1] || '').trim());
@@ -133,6 +133,7 @@ function render() {
   const m = $('#main');
   if (tab === 'search') return;
   if (!data) { m.innerHTML = '<div class="empty">Yükleniyor…</div>'; return; }
+  if (data.missing) { m.innerHTML = '<div class="empty">Bu tarih için kayıt yok.<br>Veriler takibin başladığı günden itibaren birikir.</div>'; return; }
   if (tab === 'health') m.innerHTML = list(data.health, itemCard, 'Bu gün öne çıkan sağlık düzenlemesi yok.');
   if (tab === 'people') {
     const key = data.appointments.filter(a => a.is_health || a.is_key_role), rest = data.appointments.filter(a => !(a.is_health || a.is_key_role));
