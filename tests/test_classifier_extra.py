@@ -79,7 +79,9 @@ def test_ilan_listesi_kayda_gecer():
     from rgtakip import ilanlar
     conn = db.connect(":memory:")
     bodies = {}
-    ft = lambda u: "Sağlık Bakanlığı Kamu Hastaneleri Genel Müdürlüğünden:\nSÖZLEŞMELİ PERSONEL ALIM İLANI\nmetin"
+    sb = "Sağlık Bakanlığı Kamu Hastaneleri Genel Müdürlüğünden:\nSÖZLEŞMELİ PERSONEL ALIM İLANI\nmetin"
+    # Toros Üniversitesi ilanı (hastane ibaresi yok) sağlık sayılmamalı
+    ft = lambda u: sb if u.endswith("4-6.htm") or u.endswith("4-18.htm") else "Mühendislik Fakültesi için öğretim görevlisi alınacaktır."
     st = ilanlar.expand(conn, "2026-11-10", "Çeşitli İlânlar", BASE, lambda u: LISTING, ft)
     assert st["new"] == 3 and st["health"] == 2
     row = conn.execute("SELECT title, issuer FROM items WHERE title LIKE 'Sağlık Bakanlığı%'").fetchone()
@@ -112,3 +114,12 @@ def test_fihristten_ilan_sayfasina_uctan_uca():
     assert st["health"] == 2
     rows = conn.execute("SELECT title FROM items WHERE is_health=1").fetchall()
     assert len(rows) == 2
+
+
+def test_universite_ilani_hastane_ibaresi_metinden_yakalanir():
+    from rgtakip import ilanlar
+    conn = db.connect(":memory:")
+    ft = lambda u: "Üniversitemiz Tıp Fakültesi Hastanesinde görevlendirilmek üzere öğretim üyesi alınacaktır."
+    ilanlar.expand(conn, "2026-11-10", "Çeşitli İlânlar", BASE, lambda u: LISTING, ft)
+    row = conn.execute("SELECT is_health, categories FROM items WHERE title LIKE 'Toros%'").fetchone()
+    assert row["is_health"] == 1 and "universite_hastanesi" in row["categories"]
