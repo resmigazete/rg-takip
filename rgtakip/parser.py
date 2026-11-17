@@ -43,8 +43,23 @@ class Item:
     doc_type: str
 
 
+def clean_title(t: str) -> str:
+    t = re.sub(r"\s+", " ", t).strip()
+    return re.sub(r"^[\s–—\-]+", "", t).strip()
+
+
+def is_notice(url: str, title: str) -> bool:
+    """İlan bölümü bağlantıları ve günlük döviz/borçlanma kayıtları."""
+    u = url.lower()
+    if "main.aspx" in u or "eskiilanlar" in u or "/ilanlar/" in u:
+        return True
+    return bool(re.search(r"döviz kurları|iç borçlanma senetlerinin", title.lower()))
+
+
 def guess_type(section: str, title: str) -> str:
     probe = f"{section} {title}".lower()
+    if re.search(r"(anayasa mahkemesi|danıştay|yargıtay|uyuşmazlık mahkemesi).{0,120}(karar|ilam)", probe):
+        return "yargi"
     # KHK, "kanun" kalıbından önce kontrol edilmeli
     if re.search(r"kanun hükmünde", probe):
         return "khk"
@@ -83,8 +98,9 @@ def parse_index(html: str, base: str | None = None) -> list[Item]:
             if url in seen:
                 continue
             seen.add(url)
-            title = el.get_text(" ", strip=True)
+            title = clean_title(el.get_text(" ", strip=True))
             if not title:
                 continue
-            items.append(Item(url, title, current_section, guess_type(current_section, title)))
+            dtype = "ilan" if is_notice(url, title) else guess_type(current_section, title)
+            items.append(Item(url, title, current_section, dtype))
     return items

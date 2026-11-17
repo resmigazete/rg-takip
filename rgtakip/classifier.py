@@ -23,6 +23,7 @@ HEALTH_RULES: list[tuple[str, int, str]] = [
     (r"tıp fakülte|diş hekim|eczac|hemşire|ebe\b|ebelik|sağlık hizmetleri meslek", 25, "saglik_egitim"),
     (r"sağlık personel|hekim|uzman tabip|asistan|döner sermaye", 25, "saglik_personel"),
     (r"sağlık|tedavi|hasta\b|hastalık|aşı|bulaşıcı|salgın|epidemi|pandemi", 15, "genel_saglik"),
+    (r"adli tıp", 25, "adli_tip"),
     (r"sosyal hizmet|engelli|yaşlı bakım|bakım merkezi", 10, "sosyal_hizmet"),
     (r"tütün|alkol|bağımlılık|uyuşturucu", 15, "halk_sagligi"),
     (r"gıda güvenli|gıda ve yem|veteriner", 10, "gida_veteriner"),
