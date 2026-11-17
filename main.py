@@ -17,6 +17,7 @@ def main():
     ap.add_argument("--date", help="YYYY-MM-DD (varsayılan: bugün)")
     ap.add_argument("--no-wait", action="store_true", help="yoklamadan tek deneme")
     ap.add_argument("--no-send", action="store_true", help="Telegram'a gönderme")
+    ap.add_argument("--force", action="store_true", help="O günün kayıtlarını silip yeniden işle")
     a = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
@@ -31,7 +32,7 @@ def main():
             html = fetcher.wait_for_issue(d)
         if not html:
             raise SystemExit("Sayı alınamadı.")
-        print(pipeline.process_issue(conn, d, html))
+        print(pipeline.process_issue(conn, d, html, force=a.force))
 
     text = briefing.build(conn, d)
     print(text)
