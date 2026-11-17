@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f766e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<title>RG Sağlık Takip</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+  :root { --bg:#f6f7f8; --card:#fff; --ink:#14201f; --mut:#5b6b69; --brand:#0f766e; --line:#e3e8e7; --warn:#b45309; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0e1514; --card:#162120; --ink:#e8f0ef; --mut:#8ea3a0; --brand:#2dd4bf; --line:#243230; --warn:#f59e0b; }
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body { margin:0; font:16px/1.45 -apple-system,system-ui,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--ink);
+         padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
+  header { position:sticky; top:0; z-index:5; background:var(--brand); color:#fff; padding:calc(10px + env(safe-area-inset-top)) 14px 10px; }
+  header h1 { font-size:17px; margin:0 0 8px; font-weight:650; }
+  .datebar { display:flex; align-items:center; gap:8px; }
+  .datebar button { background:rgba(255,255,255,.18); color:#fff; border:0; border-radius:10px; width:40px; height:36px; font-size:18px; }
+  .datebar input { flex:1; height:36px; border:0; border-radius:10px; padding:0 10px; font-size:15px; text-align:center; }
+  main { padding:12px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:12px 14px; margin-bottom:10px; }
+  .card a { color:inherit; text-decoration:none; }
+  .tag { display:inline-block; font-size:12px; padding:2px 8px; border-radius:99px; background:var(--line); color:var(--mut); margin-right:6px; }
+  .tag.imp { background:var(--brand); color:#fff; }
+  .title { font-weight:600; margin:6px 0 2px; }
+  .mut { color:var(--mut); font-size:14px; }
+  .chg { margin-top:6px; font-size:13px; color:var(--warn); }
+  h2 { font-size:15px; margin:18px 4px 8px; color:var(--mut); font-weight:650; text-transform:uppercase; letter-spacing:.04em; }
+  nav { position:fixed; bottom:0; left:0; right:0; display:flex; background:var(--card); border-top:1px solid var(--line);
+        padding-bottom:env(safe-area-inset-bottom); }
+  nav button { flex:1; border:0; background:none; padding:12px 0 10px; font-size:13px; color:var(--mut); }
+  nav button.on { color:var(--brand); font-weight:650; }
+  .empty { text-align:center; color:var(--mut); padding:40px 10px; }
+  #q { width:100%; height:44px; border:1px solid var(--line); border-radius:12px; padding:0 12px; font-size:16px; background:var(--card); color:var(--ink); margin-bottom:10px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🩺 Resmi Gazete · Sağlık Takip</h1>
+  <div class="datebar" id="datebar">
+    <button id="prev" aria-label="Önceki gün">‹</button>
+    <input type="date" id="date">
+    <button id="next" aria-label="Sonraki gün">›</button>
+  </div>
+</header>
+<main id="main"></main>
+<nav>
+  <button data-tab="health" class="on">🩺 Sağlık</button>
+  <button data-tab="people">👤 Atamalar</button>
+  <button data-tab="other">📄 Diğer</button>
+  <button data-tab="search">🔎 Ara</button>
+</nav>
+
+<script src="config.js"></script>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const KIND = {degisti:'değişti', eklendi:'eklendi', yururlukten_kalkti:'kaldırıldı'};
+let tab = 'health', data = null;
+
+const STATIC = window.RG_MODE === 'static';
+let searchIdx = null;
+const trLower = s => s.replace(/İ/g, 'i').replace(/I/g, 'ı').toLowerCase();
+
+async function getJSON(url, optional) {
+  const r = await fetch(url);
+  if (r.status === 404 && optional) return null;
+  if (!r.ok) throw new Error('Veri alınamadı (' + r.status + ')');
+  return r.json();
+}
+
+async function api(path) {
+  if (STATIC) {
+    if (path.startsWith('/api/day/')) {
+      const d = path.split('/').pop();
+      return (await getJSON('data/day/' + d + '.json', true)) || {date: d, health: [], appointments: [], others: []};
+    }
+    if (path.startsWith('/api/search')) {
+      const q = trLower(decodeURIComponent(path.split('q=')[1] || '').trim());
+      if (!searchIdx) searchIdx = await getJSON('data/search.json');
+      const has = (...f) => f.some(x => trLower(x || '').includes(q));
+      return {
+        items: searchIdx.items.filter(i => has(i.title)).slice(0, 50),
+        appointments: searchIdx.appointments.filter(a => has(a.person, a.institution)).slice(0, 50)
+      };
+    }
+    throw new Error('Bilinmeyen istek');
+  }
+  const tok = localStorage.getItem('rg_token') || '';
+  const r = await fetch(path, {headers: tok ? {Authorization: 'Bearer ' + tok} : {}});
+  if (r.status === 401) {
+    const t = prompt('Erişim anahtarını gir:');
+    if (t) { localStorage.setItem('rg_token', t); return api(path); }
+    throw new Error('yetkisiz');
+  }
+  if (!r.ok) throw new Error('Sunucu hatası ' + r.status);
+  return r.json();
+}
+
+function today() {
+  const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+  return d.toISOString().slice(0, 10);
+}
+function shift(n) {
+  const d = new Date($('#date').value + 'T12:00:00'); d.setDate(d.getDate() + n);
+  $('#date').value = d.toISOString().slice(0, 10); load();
+}
+
+function itemCard(i) {
+  const chg = (i.amendments || []).map(a => `${esc(a.article_ref)} (${KIND[a.change_kind] || ''})`).join(', ');
+  return `<div class="card"><a href="${esc(i.url)}" target="_blank" rel="noopener">
+    <span class="tag">${esc(i.type_label)}</span>${i.importance >= 60 ? '<span class="tag imp">Önemli</span>' : ''}
+    <div class="title">${esc(i.title)}</div>
+    ${chg ? `<div class="chg">Değişen: ${chg}</div>` : ''}</a></div>`;
+}
+function appCard(a) {
+  const verb = a.action === 'gorevden_alma' ? 'görevden alındı' : 'atandı';
+  const icon = {Vali:'🏛', 'Rektör':'🎓'}[a.new_role] || '•';
+  return `<div class="card"><a href="${esc(a.url)}" target="_blank" rel="noopener">
+    <span class="tag">${icon} ${esc(a.new_role || 'Görev')}</span>${a.is_health ? '<span class="tag imp">Sağlık</span>' : ''}
+    <div class="title">${esc(a.institution)}</div>
+    <div>${esc(a.person)} ${verb}</div>
+    ${a.predecessor ? `<div class="mut">Yerine: ${esc(a.predecessor)}</div>` : ''}</a></div>`;
+}
+const list = (arr, fn, empty) => arr.length ? arr.map(fn).join('') : `<div class="empty">${empty}</div>`;
+
+function render() {
+  const m = $('#main');
+  if (tab === 'search') return;
+  if (!data) { m.innerHTML = '<div class="empty">Yükleniyor…</div>'; return; }
+  if (tab === 'health') m.innerHTML = list(data.health, itemCard, 'Bu gün öne çıkan sağlık düzenlemesi yok.');
+  if (tab === 'people') {
+    const key = data.appointments.filter(a => a.is_health || a.is_key_role), rest = data.appointments.filter(a => !(a.is_health || a.is_key_role));
+    m.innerHTML = '<h2>Öne çıkanlar</h2>' + list(key, appCard, 'Öne çıkan atama yok.') + (rest.length ? '<h2>Diğer atamalar</h2>' + rest.map(appCard).join('') : '');
+  }
+  if (tab === 'other') m.innerHTML = list(data.others, itemCard, 'Kayıt yok.');
+}
+
+async function load() {
+  data = null; render();
+  try { data = await api('/api/day/' + $('#date').value); render(); }
+  catch (e) { $('#main').innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
+}
+
+function searchUI() {
+  $('#datebar').style.display = 'none';
+  $('#main').innerHTML = '<input id="q" type="search" placeholder="Kişi, kurum veya konu ara…" autofocus><div id="res"></div>';
+  let t;
+  $('#q').addEventListener('input', e => {
+    clearTimeout(t);
+    t = setTimeout(async () => {
+      const q = e.target.value.trim(); if (q.length < 2) { $('#res').innerHTML = ''; return; }
+      try {
+        const r = await api('/api/search?q=' + encodeURIComponent(q));
+        $('#res').innerHTML =
+          (r.appointments.length ? '<h2>Atamalar</h2>' + r.appointments.map(a => appCard({...a, predecessor: '', is_health: 0})).join('') : '') +
+          (r.items.length ? '<h2>Düzenlemeler</h2>' + r.items.map(itemCard).join('') : '') ||
+          '<div class="empty">Sonuç yok.</div>';
+      } catch (err) { $('#res').innerHTML = `<div class="empty">${esc(err.message)}</div>`; }
+    }, 300);
+  });
+}
+
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('nav button').forEach(x => x.classList.remove('on')); b.classList.add('on');
+  tab = b.dataset.tab;
+  if (tab === 'search') return searchUI();
+  $('#datebar').style.display = ''; render();
+});
+$('#prev').onclick = () => shift(-1); $('#next').onclick = () => shift(1);
+$('#date').onchange = load;
+$('#date').value = today();
+(async () => {
+  if (STATIC) {
+    try {
+      const days = await getJSON('data/days.json', true);
+      if (days && days.length && !days.some(d => d.date === $('#date').value)) $('#date').value = days[0].date;
+    } catch (e) {}
+  }
+  load();
+})();
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+</script>
+</body>
+</html>
