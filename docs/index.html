@@ -96,10 +96,11 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt
 const KIND = {degisti:'değişti', eklendi:'eklendi', yururlukten_kalkti:'kaldırıldı'};
 let tab = 'health', prevTab = 'health', searching = false, data = null, multi = false;
 
-const APP_VERSION = '1.9.5', APP_DATE = '17.11.2026';
+const APP_VERSION = '1.11.0', APP_DATE = '18.11.2026';
+const DEMO = new URLSearchParams(location.search).has('demo');   // ?demo=1 → örnek veri, sunucu gerekmez
 $('#foot').innerHTML = 'byRam ©ivelek · Sürüm ' + APP_VERSION + ' · ' + APP_DATE;
 
-const STATIC = window.RG_MODE === 'static';
+const STATIC = window.RG_MODE !== 'server';
 let searchIdx = null;
 const trLower = s => s.replace(/İ/g, 'i').replace(/I/g, 'ı').toLowerCase();
 
@@ -110,7 +111,38 @@ async function getJSON(url, optional) {
   return r.json();
 }
 
+const DEMO_DATA = {
+  health: [
+    {title: 'Diyaliz Merkezleri Hakkında Yönetmelik', type: 'yonetmelik', type_label: 'Yönetmelik', issuer: 'Sağlık Bakanlığından', url: 'https://www.resmigazete.gov.tr/eskiler/2026/11/20261113-1.htm', importance: 80,
+     repealed: [{title: 'Diyaliz Merkezleri Hakkında Yönetmelik', rg_date: '1/3/2019', rg_no: '30701'}], amendments: []},
+    {title: '[ÖRNEK] Diyaliz Merkezleri Hakkında Yönetmelikte Değişiklik Yapılmasına Dair Yönetmelik (RG 10.12.2022)', type: 'yonetmelik', type_label: 'Yönetmelik', issuer: 'Sağlık Bakanlığından', url: 'https://www.resmigazete.gov.tr/', importance: 70,
+     base: {title: 'Diyaliz Merkezleri Hakkında Yönetmelik', rg_date: '1/3/2019', rg_no: '30701'},
+     amendments: [
+       ...['4','8','9','15','22','25'].map(n => ({change_kind: 'degisti', article_ref: n + '. madde'})),
+       {change_kind: 'eklendi', article_ref: '9. madde'},
+       ...['4','8','21','26','27','29','37'].map(n => ({change_kind: 'yururlukten_kalkti', article_ref: n + '. madde'}))]},
+    {title: '[ÖRNEK] Türkiye Sağlık Enstitüleri Başkanlığı Teşkilat ve Görevleri Hakkında Yönetmelikte Değişiklik', type: 'yonetmelik', type_label: 'Yönetmelik', issuer: 'Sağlık Bakanlığından', url: 'https://www.resmigazete.gov.tr/', importance: 40,
+     base: {title: 'Türkiye Sağlık Enstitüleri Başkanlığı Teşkilat ve Görevleri Hakkında Yönetmelik', rg_date: '16/11/2022', rg_no: '32015'},
+     amendments: [{change_kind: 'eklendi', article_ref: '9. madde sonrası'}]}
+  ],
+  appointments: [],
+  others: [
+    {title: '[ÖRNEK] Sağlık Bakanlığı Sözleşmeli Sağlık Personeli Alım İlanı', type: 'ilan', type_label: 'İlan', issuer: 'Sağlık Bakanlığından', url: 'https://www.resmigazete.gov.tr/', importance: 20, amendments: []},
+    {title: '[ÖRNEK] Mahkeme Ödeme Emri İlanı', type: 'ilan', type_label: 'İlan', issuer: 'Ankara 3. Asliye Hukuk Mahkemesinden', url: 'https://www.resmigazete.gov.tr/', importance: 0, amendments: []}
+  ]
+};
+
 async function api(path) {
+  if (DEMO) {
+    if (path.startsWith('/api/day/')) {
+      const d = path.split('/').pop();
+      return d === latest ? {date: d, ...DEMO_DATA} : {date: d, missing: true, health: [], appointments: [], others: []};
+    }
+    if (path.startsWith('/api/search')) {
+      const q = trLower(decodeURIComponent(path.split('q=')[1] || '').trim());
+      return {items: DEMO_DATA.health.filter(i => trLower(i.title).includes(q)), appointments: []};
+    }
+  }
   if (STATIC) {
     if (path.startsWith('/api/day/')) {
       const d = path.split('/').pop();
@@ -121,7 +153,7 @@ async function api(path) {
       if (!searchIdx) searchIdx = await getJSON('data/search.json');
       const has = (...f) => f.some(x => trLower(x || '').includes(q));
       return {
-        items: searchIdx.items.filter(i => has(i.title)).slice(0, 50),
+        items: searchIdx.items.filter(i => has(i.title, i.issuer)).slice(0, 50),
         appointments: searchIdx.appointments.filter(a => has(a.person, a.institution)).slice(0, 50)
       };
     }
@@ -182,24 +214,41 @@ const LEGEND = '<div class="legend"><span><i style="background:#2563eb"></i>Yön
 
 // Madde değişikliklerini türe göre gruplar: "Değişen: md. 4, 8 · Eklenen: md. 9 · Kaldırılan: md. 21"
 const AMEND_GROUPS = [['degisti', 'Değişen'], ['eklendi', 'Eklenen'], ['yururlukten_kalkti', 'Kaldırılan']];
-const artNo = ref => String(ref ?? '').replace(/^\s*md\.?\s*/i, '').replace(/\.?\s*madde\s*$/i, '').trim();
+const artNo = ref => {   // "4. madde" -> "4"; "9. madde sonrası" -> "9 sonrası"
+  const s = String(ref ?? '').replace(/^\s*md\.?\s*/i, '').trim(), after = /sonrası\s*$/i.test(s);
+  const n = s.replace(/\s*sonrası\s*$/i, '').replace(/\.?\s*madde\s*$/i, '').trim();
+  return after && n ? n + ' sonrası' : n;
+};
 const artSort = (a, b) => (parseInt(a, 10) || 0) - (parseInt(b, 10) || 0) || a.localeCompare(b, 'tr');
 function amendSummary(list) {
   const parts = [];
   for (const [kind, label] of AMEND_GROUPS) {
     const nos = [...new Set(list.filter(a => a.change_kind === kind).map(a => artNo(a.article_ref)).filter(Boolean))].sort(artSort);
-    if (nos.length) parts.push(`${label}: md. ${esc(nos.join(', '))}`);
+    const plain = nos.filter(n => !/sonrası$/.test(n)), after = nos.filter(n => /sonrası$/.test(n)).map(n => n.replace(/\s*sonrası$/, ''));
+    const bits = [];
+    if (plain.length) bits.push('md. ' + plain.join(', '));
+    after.forEach(n => bits.push(`yeni madde (md. ${n} sonrası)`));
+    if (bits.length) parts.push(`${label}: ${esc(bits.join('; '))}`);
   }
   return parts.join(' · ');
 }
-function itemCard(i) {
-  const chg = amendSummary(i.amendments || []);
+const refTxt = r => `${esc(r.title)}${r.rg_date ? ` (RG ${esc(r.rg_date)}${r.rg_no ? ', sayı ' + esc(r.rg_no) : ''})` : ''}`;
+// Kart altı "mevzuat farkı" bloğu: neyi değiştirdi / neyi yürürlükten kaldırdı / hangi maddeler
+function diffBlock(i) {
+  const sum = amendSummary(i.amendments || []), out = [];
+  if (i.base && sum) out.push(`<b>${refTxt(i.base)}</b> değiştirildi`);
+  if (sum) out.push(sum);
+  if ((i.repealed || []).length) out.push('Yürürlükten kaldırılan: ' + i.repealed.map(refTxt).join('; '));
+  return out.length ? `<div class="chg">${out.join('<br>')}</div>` : '';
+}
+function itemCard(i, noBadge) {
+  const chg = diffBlock(i);
   const sb = isSB(i);
   return `<div class="card ${tcls(i.type)}${i.importance >= 60 ? ' imp' : ''}"><a href="${esc(i.url)}" target="_blank" rel="noopener">
-    <div class="tags">${multi && i.date ? `<span class="tag d">${trDate(i.date)}</span>` : ''}<span class="tag tt">${esc(i.type_label)}</span>${sb ? '<span class="tag sb">Sağlık Bakanlığı</span>' : ''}</div>
+    <div class="tags">${multi && i.date ? `<span class="tag d">${trDate(i.date)}</span>` : ''}<span class="tag tt">${esc(i.type_label)}</span>${sb && !noBadge ? '<span class="tag sb">Sağlık Bakanlığı</span>' : ''}</div>
     <div class="title">${esc(i.title)}</div>
     ${i.issuer ? `<div class="mut">${esc(i.issuer)}</div>` : ''}
-    ${chg ? `<div class="chg">${chg}</div>` : ''}</a>
+    ${chg}</a>
     ${shareBtn(i.title + (i.issuer ? '\n' + i.issuer : ''), i.url)}</div>`;
 }
 function appCard(a) {
@@ -212,21 +261,25 @@ function appCard(a) {
     ${a.predecessor ? `<div class="mut">Yerine: ${esc(a.predecessor)}</div>` : ''}</a>
     ${shareBtn(a.person + ' ' + verb + ' — ' + a.institution, a.url)}</div>`;
 }
-const list = (arr, fn, empty) => arr.length ? arr.map(fn).join('') : `<div class="empty">${empty}</div>`;
+const list = (arr, fn, empty) => arr.length ? arr.map(x => fn(x)).join('') : `<div class="empty">${empty}</div>`;
 
 function render() {
   const m = $('#main');
   if (searching) return;
   if (!data) { m.innerHTML = '<div class="empty">Yükleniyor…</div>'; return; }
   if (data.missing) { m.innerHTML = '<div class="empty">Seçilen tarih aralığında kayıt yok.<br>Veriler takibin başladığı günden itibaren birikir.</div>'; return; }
-  if (tab === 'health') m.innerHTML = LEGEND + list(data.health.filter(isSB), itemCard, 'Bu aralıkta Sağlık Bakanlığı ile ilgili kayıt yok.');
-  if (tab === 'related') m.innerHTML = '<div class="note">Sağlıkla ilgili ama Sağlık Bakanlığı\'na doğrudan bağlı olmayan kayıtlar (üniversite hastaneleri, sağlık bilimleri üniversiteleri, diğer kurumlar vb.)</div>' +
+  const warn = data.failed ? `<div class="note">${data.failed} günün verisi alınamadı; kalan günler gösteriliyor. Sayfayı yenileyip tekrar deneyin.</div>` : '';
+  if (tab === 'health') {
+    const sbItems = [...data.health, ...data.others].filter(isSB).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    m.innerHTML = warn + LEGEND + list(sbItems, i => itemCard(i, true), 'Bu aralıkta Sağlık Bakanlığı ile ilgili kayıt yok.');
+  }
+  if (tab === 'related') m.innerHTML = warn + '<div class="note">Sağlıkla ilgili ama Sağlık Bakanlığı\'na doğrudan bağlı olmayan kayıtlar (üniversite hastaneleri, sağlık bilimleri üniversiteleri, diğer kurumlar vb.)</div>' +
     LEGEND + list(data.health.filter(i => !isSB(i)), itemCard, 'Bu aralıkta ilgili kayıt yok.');
   if (tab === 'people') {
     const key = data.appointments.filter(a => a.is_health || a.is_key_role), rest = data.appointments.filter(a => !(a.is_health || a.is_key_role));
-    m.innerHTML = '<h2>Öne çıkanlar</h2>' + list(key, appCard, 'Öne çıkan atama yok.') + (rest.length ? '<h2>Diğer atamalar</h2>' + rest.map(appCard).join('') : '');
+    m.innerHTML = warn + '<h2>Öne çıkanlar</h2>' + list(key, appCard, 'Öne çıkan atama yok.') + (rest.length ? '<h2>Diğer atamalar</h2>' + rest.map(a => appCard(a)).join('') : '');
   }
-  if (tab === 'other') m.innerHTML = LEGEND + list(data.others, itemCard, 'Kayıt yok.');
+  if (tab === 'other') m.innerHTML = warn + LEGEND + list(data.others.filter(i => !isSB(i)), itemCard, 'Kayıt yok.');
 }
 
 async function load() {
@@ -238,10 +291,12 @@ async function load() {
   const days = [];
   for (let d = b; d >= a; d = addDays(d, -1)) days.push(d);   // yeniden eskiye
   try {
-    const res = await Promise.all(days.map(d => api('/api/day/' + d).then(r => ({d, r}))));
-    const out = {health: [], appointments: [], others: [], missing: true};
+    const res = await Promise.all(days.map(d => api('/api/day/' + d).then(r => ({d, r})).catch(err => ({d, err}))));
+    const bad = res.filter(x => x.err);
+    if (bad.length === res.length) throw bad[0].err;   // hepsi başarısızsa gerçek hata göster
+    const out = {health: [], appointments: [], others: [], missing: true, failed: bad.length};
     for (const {d, r} of res) {
-      if (r.missing) continue;
+      if (!r || r.missing) continue;
       out.missing = false;
       const stamp = x => ({...x, date: x.date || d});
       out.health.push(...r.health.map(stamp));
@@ -264,7 +319,7 @@ function searchUI() {
         const r = await api('/api/search?q=' + encodeURIComponent(q));
         $('#res').innerHTML =
           (r.appointments.length ? '<h2>Atamalar</h2>' + r.appointments.map(a => appCard({...a, predecessor: '', is_health: 0})).join('') : '') +
-          (r.items.length ? '<h2>Düzenlemeler</h2>' + r.items.map(itemCard).join('') : '') ||
+          (r.items.length ? '<h2>Düzenlemeler</h2>' + r.items.map(i => itemCard(i)).join('') : '') ||
           '<div class="empty">Sonuç yok.</div>';
       } catch (err) { $('#res').innerHTML = `<div class="empty">${esc(err.message)}</div>`; }
     }, 300);
@@ -297,6 +352,9 @@ document.querySelectorAll('#chips button').forEach(b => b.onclick = () => { cons
       if (days && days.length) latest = days[0].date;
     } catch (e) {}
   }
+  const chipBtns = document.querySelectorAll('#chips button');
+  if (latest !== today()) { chipBtns[0].textContent = 'Son gün'; chipBtns[1].textContent = 'Önceki gün'; }
+  $('#foot').innerHTML = 'byRam ©ivelek · Sürüm ' + APP_VERSION + ' · ' + APP_DATE + ' · Veri: ' + trDate(latest);
   setRange(latest, latest);
 })();
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
