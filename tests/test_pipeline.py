@@ -54,7 +54,7 @@ def test_end_to_end():
     ams = conn.execute("SELECT * FROM amendments").fetchall()
     kinds = {(a["article_ref"], a["change_kind"]) for a in ams}
     assert ("5. madde", "degisti") in kinds
-    assert ("9. madde", "yururlukten_kalkti") in kinds
+    assert ("9. madde (1. fık.)", "yururlukten_kalkti") in kinds
 
     # aynı sayı tekrar işlenirse atlanmalı
     assert pipeline.process_issue(conn, d, INDEX, text_fetcher=lambda u: BODIES.get(u, ""))["skipped"]

@@ -1,4 +1,11 @@
+import re
+
 from rgtakip.amendments import analyze, extract, target_from_title
+
+
+def _md(ref):   # "5. madde (1. fık.)" -> "5. madde"
+    return re.sub(r"\s*\(.*\)$", "", ref)
+
 
 T_2022 = "Diyaliz Merkezleri Hakkında Yönetmelikte Değişiklik Yapılmasına Dair Yönetmelik"
 B_2022 = """
@@ -24,7 +31,7 @@ MADDE 11- Bu Yönetmelik hükümlerini Sağlık Bakanı yürütür.
 def _by_kind(items):
     out = {}
     for a in items:
-        out.setdefault(a.change_kind, set()).add(a.article_ref)
+        out.setdefault(a.change_kind, set()).add(_md(a.article_ref))
     return out
 
 
@@ -51,14 +58,14 @@ def test_alinti_icindeki_sahte_islemler_sayilmaz():
     body = ("MADDE 1- 1/1/2020 tarihli ve 31000 sayılı Resmî Gazete’de yayımlanan Deneme Yönetmeliğinin 3 üncü maddesi aşağıdaki şekilde değiştirilmiştir.\n"
             "“MADDE 3- Bu madde 5 inci maddesi uyarınca değiştirilmiş ve yürürlükten kaldırılmış sayılmaz.”")
     a = analyze("Deneme Yönetmeliğinde Değişiklik Yapılmasına Dair Yönetmelik", body)
-    assert [(x.article_ref, x.change_kind) for x in a.amendments] == [("3. madde", "degisti")]
+    assert [(_md(x.article_ref), x.change_kind) for x in a.amendments] == [("3. madde", "degisti")]
 
 
 def test_maddeden_sonra_gelmek_uzere():
     body = ("MADDE 1- 16/11/2022 tarihli ve 32015 sayılı Resmî Gazete’de yayımlanan Türkiye Sağlık Enstitüleri Başkanlığı Teşkilat ve Görevleri Hakkında Yönetmeliğe "
             "9 uncu maddeden sonra gelmek üzere aşağıdaki madde eklenmiştir.\n“MADDE 9/A- (1) ...”\nMADDE 2- Bu Yönetmelik yayımı tarihinde yürürlüğe girer.")
     a = analyze("Türkiye Sağlık Enstitüleri Başkanlığı Teşkilat ve Görevleri Hakkında Yönetmelikte Değişiklik Yapılmasına Dair Yönetmelik", body)
-    assert [(x.article_ref, x.change_kind) for x in a.amendments] == [("9. madde sonrası", "eklendi")]
+    assert [(_md(x.article_ref), x.change_kind) for x in a.amendments] == [("9. madde sonrası", "eklendi")]
     assert a.base.rg_no == "32015"
 
 
@@ -83,7 +90,7 @@ def test_yurürlükten_kaldirma_basligi():
 
 def test_duz_metin_madde_basligi_olmadan():
     a = analyze("Deneme Yönetmeliğinde Değişiklik Yapılmasına Dair Yönetmelik", "Yönetmeliğin 4 üncü maddesi yürürlükten kaldırılmıştır.")
-    assert [(x.article_ref, x.change_kind) for x in a.amendments] == [("4. madde", "yururlukten_kalkti")]
+    assert [(_md(x.article_ref), x.change_kind) for x in a.amendments] == [("4. madde", "yururlukten_kalkti")]
 
 
 # ---- Gerçek Resmî Gazete metninin biçimi: sabit genişlikte satırlara bölünmüş (UYDURMA içerik, gerçek biçim) ----
@@ -132,7 +139,42 @@ def test_tebligde_parantez_ve_mukerrer():
             "Tebliğ (Tebliğ No: 2025/4)’in 4 üncü maddesinin ikinci fıkrasında yer alan tablo aşağıdaki şekilde değiştirilmiştir.")
     a = analyze("İthalatta Haksız Rekabetin Önlenmesine İlişkin Tebliğ (Tebliğ No: 2025/4)’de Değişiklik Yapılmasına Dair Tebliğ", body)
     assert a.base.title == "İthalatta Haksız Rekabetin Önlenmesine İlişkin Tebliğ (Tebliğ No: 2025/4)" and a.base.rg_no == "32819"
-    assert [(x.article_ref, x.change_kind) for x in a.amendments] == [("4. madde", "degisti")]
+    assert [(_md(x.article_ref), x.change_kind) for x in a.amendments] == [("4. madde", "degisti")]
     k = analyze("Toros Üniversitesi X Merkezi Yönetmeliğinin Yürürlükten Kaldırılmasına Dair Yönetmelik",
                 "MADDE 1- 28/8/2015 tarihli ve 29459 mükerrer sayılı Resmî Gazete’de yayımlanan Toros Üniversitesi X Merkezi Yönetmeliği yürürlükten kaldırılmıştır.")
     assert [(r.rg_date, r.rg_no) for r in k.repealed] == [("28/8/2015", "29459")]
+
+
+T_BILIM = "Türkiye Sağlık Enstitüleri Başkanlığı Bünyesinde Oluşturulacak Bilim Kurulları Hakkında Yönetmelikte Değişiklik Yapılmasına Dair Yönetmelik"
+B_BILIM = """
+MADDE 1-
+18/12/2015
+tarihli ve
+    29566 sayılı Resmî Gazete’de yayımlanan Türkiye Sağlık Enstitüleri Başkanlığı
+    Bünyesinde Oluşturulacak Bilim Kurulları Hakkında Yönetmeliğin 1 inci
+    maddesi aşağıdaki şekilde değiştirilmiştir.
+“MADDE 1- (1) Bu Yönetmeliğin amacı, ... belirlenmesidir.”
+MADDE 2-
+Aynı Yönetmeliğin 5 inci maddesinin birinci
+    fıkrası yürürlükten kaldırılmıştır.
+MADDE 3-
+Aynı Yönetmeliğin 6
+ncı
+maddesinin birinci ve yedinci fıkraları yürürlükten kaldırılmış ve aynı
+    maddenin üçüncü, dördüncü, beşinci ve altıncı fıkraları aşağıdaki şekilde
+    değiştirilmiştir.
+“(3) Bir toplantıya bağlı ... ödeme yapılmaz.”
+MADDE 4-
+Bu Yönetmelik yayımı tarihinde yürürlüğe girer.
+"""
+
+
+def test_fikra_bilgisi_gercek_metin():
+    a = analyze(T_BILIM, B_BILIM)
+    got = {(x.article_ref, x.change_kind) for x in a.amendments}
+    assert got == {
+        ("1. madde", "degisti"),
+        ("5. madde (1. fık.)", "yururlukten_kalkti"),
+        ("6. madde (1, 7. fık.)", "yururlukten_kalkti"),
+        ("6. madde (3, 4, 5, 6. fık.)", "degisti"),
+    }
