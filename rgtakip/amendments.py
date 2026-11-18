@@ -33,11 +33,16 @@ _LIST = rf"{_ITEM}(?:\s*(?:,|\bve\b|\bile\b)\s*{_ITEM})*"           # "4 üncü 
 _HEAD = re.compile(r"(?:(?:GEÇİCİ|EK)\s+)?MADDE\s+[\dlI]{1,3}\s*[-–—]")   # Resmî Gazete bazen "MADDE l-" (harf) basar
 _MD_HEAD = re.compile(r"(?m)^[ \t]*#+[ \t]*((?:(?:GEÇİCİ|EK)\s+)?MADDE\s+\d+)[ \t]*$")
 
+_FIK = {"birinci": "1", "ikinci": "2", "üçüncü": "3", "dördüncü": "4", "beşinci": "5", "altıncı": "6", "yedinci": "7",
+        "sekizinci": "8", "dokuzuncu": "9", "onuncu": "10", "on birinci": "11", "on ikinci": "12", "son": "son"}
+_ORDW = r"(?:on\s+birinci|on\s+ikinci|birinci|ikinci|üçüncü|dördüncü|beşinci|altıncı|yedinci|sekizinci|dokuzuncu|onuncu|son)"
+
 _TOKEN = re.compile(
     rf"(?P<after>(?P<an>{_NUM})\s*{_ORD}?\s*madde(?:sin)?den\s+sonra\s+gelmek\s+üzere)"
     r"|(?P<sameafter>[Aa]ynı\s+madde(?:sin)?den\s+sonra\s+gelmek\s+üzere)"
     rf"|(?P<art>(?P<lst>{_LIST})\s*madde\w*)"
     r"|(?P<same>[Aa]ynı\s+madde\w*)"
+    rf"|(?P<fik>(?P<fl>{_ORDW}(?:\s*(?:,|\bve\b)\s*{_ORDW})*)\s+f[ıi]kra\w*)"
     r"|(?P<rep>yürürlükten\s+kaldırıl\w*)"
     r"|(?P<add>eklen\w*|ilave\s+edil\w*)"
     r"|(?P<chg>değiştirilmiş\w*|şeklinde\s+değiştir\w*)",
@@ -159,9 +164,17 @@ def _item_label(item: str) -> str:
     return f"{prefix} {m.group(2)}".strip()
 
 
-def _ops_in_madde(body: str) -> list[tuple[str, str]]:
-    """Tek bir MADDE'deki işlemler: [(madde_no veya 'N sonrası', kind), ...]"""
-    ops: list[tuple[str, str]] = []
+def _fik_label(fl: str) -> str:
+    nums = [_FIK[re.sub(r"\s+", " ", w.lower())] for w in re.findall(_ORDW, fl, re.I)]
+    if nums == ["son"]:
+        return "son fık."
+    return ", ".join(nums) + ". fık."
+
+
+def _ops_in_madde(body: str) -> list[tuple[str, str, str]]:
+    """Tek bir MADDE'deki işlemler: [(madde_no veya 'N sonrası', kind, fıkra), ...]"""
+    ops: list[tuple[str, str, str]] = []
+    fik = ""
     pending: list[str] = []
     last: str | None = None
     for m in _TOKEN.finditer(body):
@@ -179,17 +192,21 @@ def _ops_in_madde(body: str) -> list[tuple[str, str]]:
         elif m.group("same"):
             if last:
                 pending.append(last)
+        elif m.group("fik"):
+            fik = _fik_label(m.group("fl"))
         else:
             kind = KIND_NAMES["rep" if m.group("rep") else "add" if m.group("add") else "chg"]
             for art in (pending or ([last] if last else [])):
-                if (art, kind) not in ops:
-                    ops.append((art, kind))
+                if (art, kind, fik) not in ops:
+                    ops.append((art, kind, fik))
             pending = []
+            fik = ""
     return ops
 
 
-def _ref_label(art: str) -> str:
-    return f"{art[:-len(' sonrası')]}. madde sonrası" if art.endswith(" sonrası") else f"{art}. madde"
+def _ref_label(art: str, fik: str = "") -> str:
+    base = f"{art[:-len(' sonrası')]}. madde sonrası" if art.endswith(" sonrası") else f"{art}. madde"
+    return f"{base} ({fik})" if fik and not art.endswith(" sonrası") else base
 
 
 def analyze(title: str, body: str) -> Analysis:
@@ -208,8 +225,8 @@ def analyze(title: str, body: str) -> Analysis:
         law = target_from_title(title) or (base.title if base else "")
         for part in _split_maddeler(clean):
             snippet = part.strip()[:300]
-            for art, kind in _ops_in_madde(part):
-                a.amendments.append(Amendment(law, _ref_label(art), kind, snippet))
+            for art, kind, fik in _ops_in_madde(part):
+                a.amendments.append(Amendment(law, _ref_label(art, fik), kind, snippet))
         return a
 
     if "yürürlükten kaldırılmasına" in t:
