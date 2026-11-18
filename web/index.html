@@ -63,6 +63,9 @@
   #foot { text-align:center; color:var(--mut); font-size:11px; padding:3px 8px 5px; }
   .empty { text-align:center; color:var(--mut); padding:40px 10px; }
   #q { width:100%; height:44px; border:1px solid var(--line); border-radius:12px; padding:0 12px; font-size:16px; background:var(--card); color:var(--ink); margin-bottom:10px; }
+nav button .cnt{display:inline-block;min-width:1.4em;padding:0 .35em;margin-left:.2em;border-radius:1em;background:rgba(127,127,127,.22);font-size:.8em;line-height:1.5}
+nav button .cnt.z{opacity:.5}
+nav button.on .cnt{background:rgba(127,127,127,.35)}
 </style>
 </head>
 <body>
@@ -96,7 +99,7 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt
 const KIND = {degisti:'değişti', eklendi:'eklendi', yururlukten_kalkti:'kaldırıldı'};
 let tab = 'health', prevTab = 'health', searching = false, data = null, multi = false;
 
-const APP_VERSION = '1.11.0', APP_DATE = '18.11.2026';
+const APP_VERSION = '1.11.1', APP_DATE = '18.11.2026';
 const DEMO = new URLSearchParams(location.search).has('demo');   // ?demo=1 → örnek veri, sunucu gerekmez
 $('#foot').innerHTML = 'byRam ©ivelek · Sürüm ' + APP_VERSION + ' · ' + APP_DATE;
 
@@ -263,9 +266,25 @@ function appCard(a) {
 }
 const list = (arr, fn, empty) => arr.length ? arr.map(x => fn(x)).join('') : `<div class="empty">${empty}</div>`;
 
+const TAB_NAMES = {health:'Sağlık Bakanlığı', related:'Diğer Sağlık', people:'Atamalar', other:'Genel'};
+function updateCounts() {
+  let n = null;
+  if (data && !data.missing) n = {
+    health: [...data.health, ...data.others].filter(isSB).length,
+    related: data.health.filter(i => !isSB(i)).length,
+    people: data.appointments.length,
+    other: data.others.filter(i => !isSB(i)).length
+  };
+  document.querySelectorAll('nav button').forEach(b => {
+    const k = b.dataset.tab;
+    b.innerHTML = esc(TAB_NAMES[k]) + (n ? ` <span class="cnt${n[k] ? '' : ' z'}">${n[k]}</span>` : '');
+  });
+}
+
 function render() {
   const m = $('#main');
   if (searching) return;
+  updateCounts();
   if (!data) { m.innerHTML = '<div class="empty">Yükleniyor…</div>'; return; }
   if (data.missing) { m.innerHTML = '<div class="empty">Seçilen tarih aralığında kayıt yok.<br>Veriler takibin başladığı günden itibaren birikir.</div>'; return; }
   const warn = data.failed ? `<div class="note">${data.failed} günün verisi alınamadı; kalan günler gösteriliyor. Sayfayı yenileyip tekrar deneyin.</div>` : '';
