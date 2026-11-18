@@ -99,7 +99,7 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt
 const KIND = {degisti:'değişti', eklendi:'eklendi', yururlukten_kalkti:'kaldırıldı'};
 let tab = 'health', prevTab = 'health', searching = false, data = null, multi = false;
 
-const APP_VERSION = '1.11.1', APP_DATE = '18.11.2026';
+const APP_VERSION = '1.11.2', APP_DATE = '18.11.2026';
 const DEMO = new URLSearchParams(location.search).has('demo');   // ?demo=1 → örnek veri, sunucu gerekmez
 $('#foot').innerHTML = 'byRam ©ivelek · Sürüm ' + APP_VERSION + ' · ' + APP_DATE;
 
@@ -217,17 +217,29 @@ const LEGEND = '<div class="legend"><span><i style="background:#2563eb"></i>Yön
 
 // Madde değişikliklerini türe göre gruplar: "Değişen: md. 4, 8 · Eklenen: md. 9 · Kaldırılan: md. 21"
 const AMEND_GROUPS = [['degisti', 'Değişen'], ['eklendi', 'Eklenen'], ['yururlukten_kalkti', 'Kaldırılan']];
-const artNo = ref => {   // "4. madde" -> "4"; "9. madde sonrası" -> "9 sonrası"
-  const s = String(ref ?? '').replace(/^\s*md\.?\s*/i, '').trim(), after = /sonrası\s*$/i.test(s);
+const artNo = ref => {   // "4. madde" -> "4"; "9. madde sonrası" -> "9 sonrası"; "5. madde (1. fık.)" -> "5"
+  const s = String(ref ?? '').replace(/\s*\([^)]*\)\s*$/, '').replace(/^\s*md\.?\s*/i, '').trim(), after = /sonrası\s*$/i.test(s);
   const n = s.replace(/\s*sonrası\s*$/i, '').replace(/\.?\s*madde\s*$/i, '').trim();
   return after && n ? n + ' sonrası' : n;
 };
+const fikOf = ref => { const m = String(ref ?? '').match(/\(([^)]*fık\.?)\)\s*$/); return m ? m[1].replace(/\s*\.?\s*fık\.?$/, '').split(',').map(x => x.trim()).filter(Boolean) : []; };
+const fikTxt = nums => { const u = [...new Set(nums)].sort((a, b) => (a === 'son') - (b === 'son') || (parseInt(a, 10) || 0) - (parseInt(b, 10) || 0));
+  return u.length === 1 && u[0] === 'son' ? 'son fık.' : u.join(', ') + '. fık.'; };
 const artSort = (a, b) => (parseInt(a, 10) || 0) - (parseInt(b, 10) || 0) || a.localeCompare(b, 'tr');
 function amendSummary(list) {
   const parts = [];
   for (const [kind, label] of AMEND_GROUPS) {
-    const nos = [...new Set(list.filter(a => a.change_kind === kind).map(a => artNo(a.article_ref)).filter(Boolean))].sort(artSort);
-    const plain = nos.filter(n => !/sonrası$/.test(n)), after = nos.filter(n => /sonrası$/.test(n)).map(n => n.replace(/\s*sonrası$/, ''));
+    const by = new Map();   // madde no -> fıkralar (null: maddenin tamamı)
+    for (const a of list.filter(a => a.change_kind === kind)) {
+      const n = artNo(a.article_ref); if (!n) continue;
+      const f = fikOf(a.article_ref), cur = by.get(n);
+      if (!by.has(n)) by.set(n, f.length ? [...f] : null);
+      else if (cur && f.length) cur.push(...f);
+      else if (cur && !f.length) by.set(n, null);
+    }
+    const nos = [...by.keys()].sort(artSort);
+    const plain = nos.filter(n => !/sonrası$/.test(n)).map(n => by.get(n) ? `${n} (${fikTxt(by.get(n))})` : n);
+    const after = nos.filter(n => /sonrası$/.test(n)).map(n => n.replace(/\s*sonrası$/, ''));
     const bits = [];
     if (plain.length) bits.push('md. ' + plain.join(', '));
     after.forEach(n => bits.push(`yeni madde (md. ${n} sonrası)`));
