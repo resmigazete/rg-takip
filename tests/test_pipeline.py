@@ -65,3 +65,31 @@ def test_end_to_end():
     assert "Su Tarifesi" not in text
     assert "Sağlık Uygulama Tebliğinde" in text
     assert "Belediye Başkan Yardımcılığına" not in text
+
+
+def test_law_refs_ve_reanalyze():
+    """Değişen/kaldırılan mevzuat DB'ye yazılır, JSON'a çıkar ve ağsız yeniden hesaplanabilir."""
+    from rgtakip import queries
+    index = INDEX.replace("<h3>TEBLİĞLER</h3>",
+                          '<a href="/eskiler/2026/11/20261116-6.htm">Sağlık Bakanlığı Örnek Merkezler Hakkında Yönetmelik</a><h3>TEBLİĞLER</h3>')
+    bodies = dict(BODIES)
+    bodies["https://www.resmigazete.gov.tr/eskiler/2026/11/20261116-6.htm"] = (
+        "MADDE 9-\n(1)\n1/3/2019\ntarihli ve\n    30701 sayılı Resmî Gazete’de yayımlanan Örnek Merkezler\n    Yönetmelik yürürlükten kaldırılmıştır.")
+    bodies["https://www.resmigazete.gov.tr/eskiler/2026/11/20261116-2.htm"] = (
+        "MADDE 1- 2/2/2020 tarihli ve 31000 sayılı Resmî Gazete’de yayımlanan Tıbbi Cihaz Satış\n    Yönetmeliğinin 5 inci\n    maddesi aşağıdaki şekilde değiştirilmiştir.")
+    conn = db.connect(":memory:")
+    pipeline.process_issue(conn, date(2026, 11, 16), index, text_fetcher=lambda u: bodies.get(u, ""))
+    day = queries.day(conn, "2026-11-16")
+    by = {i["url"][-6:]: i for i in day["health"] + day["others"]}
+    assert by["-6.htm"]["repealed"] == [{"title": "Örnek Merkezler Yönetmelik", "rg_date": "1/3/2019", "rg_no": "30701"}]
+    assert by["-2.htm"]["base"]["rg_no"] == "31000"
+    assert [a["article_ref"] for a in by["-2.htm"]["amendments"]] == ["5. madde"]
+
+    # Ayrıştırıcı iyileşince eski kayıtlar ağ olmadan düzelir; tekrar çalıştırmak çoğaltmaz
+    conn.execute("DELETE FROM amendments"); conn.execute("DELETE FROM law_refs"); conn.commit()
+    n = pipeline.reanalyze(conn)
+    assert n >= 3 and pipeline.reanalyze(conn) == n
+    refs = conn.execute("SELECT role FROM law_refs ORDER BY id").fetchall()
+    assert sorted(r["role"] for r in refs).count("repealed") == 1
+    rows = conn.execute("SELECT item_id, article_ref FROM amendments WHERE article_ref='5. madde'").fetchall()
+    assert len(rows) >= 1 and len(rows) == len({r["item_id"] for r in rows})
