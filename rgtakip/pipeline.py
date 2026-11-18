@@ -11,6 +11,37 @@ from . import amendments, appointments, classifier, fetcher, ilanlar, parser
 
 log = logging.getLogger(__name__)
 
+LEGAL_TYPES = ("yonetmelik", "teblig", "kanun", "khk", "cb_kararname")
+
+
+def store_legal(conn: sqlite3.Connection, item_id: int, title: str, body: str) -> None:
+    """Bir mevzuat kaydının madde işlemlerini ve değiştirilen/kaldırılan mevzuatını (yeniden) yazar.
+    Tekrar çalıştırılabilir: önce o kaydın eski satırlarını siler."""
+    conn.execute("DELETE FROM amendments WHERE item_id=?", (item_id,))
+    conn.execute("DELETE FROM law_refs WHERE item_id=?", (item_id,))
+    an = amendments.analyze(title, body or "")
+    for am in an.amendments:
+        conn.execute(
+            "INSERT INTO amendments(item_id,target_law,article_ref,change_kind,snippet) VALUES (?,?,?,?,?)",
+            (item_id, am.target_law, am.article_ref, am.change_kind, am.snippet))
+    refs = [("repealed", r) for r in an.repealed]
+    if an.base and (body or "").strip():          # gövde yoksa "değiştirildi" demek için dayanak yok
+        refs.insert(0, ("base", an.base))
+    for role, ref in refs:
+        conn.execute("INSERT INTO law_refs(item_id,role,title,rg_date,rg_no) VALUES (?,?,?,?,?)",
+                     (item_id, role, ref.title, ref.rg_date, ref.rg_no))
+
+
+def reanalyze(conn: sqlite3.Connection, since: str | None = None) -> int:
+    """Kayıtlı gövdelerden madde farkını yeniden hesaplar (ağ gerekmez). since: 'YYYY-MM-DD' (dahil)."""
+    rows = conn.execute(
+        f"SELECT id, title, body FROM items WHERE doc_type IN ({','.join('?' * len(LEGAL_TYPES))}) "
+        "AND (? IS NULL OR issue_date >= ?)", (*LEGAL_TYPES, since, since)).fetchall()
+    for r in rows:
+        store_legal(conn, r["id"], r["title"], r["body"] or "")
+    conn.commit()
+    return len(rows)
+
 
 def process_issue(conn: sqlite3.Connection, d: date, index_html: str,
                   text_fetcher: Callable[[str], str] = fetcher.fetch_item_text,
@@ -23,6 +54,7 @@ def process_issue(conn: sqlite3.Connection, d: date, index_html: str,
     ih = fetcher.sha(index_html)
     if force:
         conn.execute("DELETE FROM amendments WHERE item_id IN (SELECT id FROM items WHERE issue_date=?)", (iso,))
+        conn.execute("DELETE FROM law_refs WHERE item_id IN (SELECT id FROM items WHERE issue_date=?)", (iso,))
         conn.execute("DELETE FROM appointments WHERE item_id IN (SELECT id FROM items WHERE issue_date=?)", (iso,))
         conn.execute("DELETE FROM items WHERE issue_date=?", (iso,))
         conn.execute("DELETE FROM issues WHERE date=? AND kind=?", (iso, kind))
@@ -80,10 +112,7 @@ def process_issue(conn: sqlite3.Connection, d: date, index_html: str,
                        VALUES (?,?,?,?,?,?,?,?,?)""",
                     (item_id, a.person, a.new_role, a.institution, a.predecessor, a.action,
                      int(a.is_key_role), int(a.is_health), a.raw))
-        if it.doc_type in ("yonetmelik", "teblig", "kanun", "khk", "cb_kararname") and body:
-            for am in amendments.extract(it.title, body):
-                conn.execute(
-                    "INSERT INTO amendments(item_id,target_law,article_ref,change_kind,snippet) VALUES (?,?,?,?,?)",
-                    (item_id, am.target_law, am.article_ref, am.change_kind, am.snippet))
+        if it.doc_type in LEGAL_TYPES:
+            store_legal(conn, item_id, it.title, body)
     conn.commit()
     return stats

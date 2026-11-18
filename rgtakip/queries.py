@@ -13,6 +13,22 @@ def item_dict(r) -> dict:
             "categories": [c for c in (r["categories"] or "").split(",") if c]}
 
 
+def _legal(conn: sqlite3.Connection, item_id: int) -> dict:
+    """Madde işlemleri + değiştirilen/kaldırılan mevzuat (varsa) — yalnız dolu alanlar eklenir."""
+    out: dict = {}
+    ams = [dict(a) for a in conn.execute(
+        "SELECT target_law, article_ref, change_kind FROM amendments WHERE item_id=?", (item_id,))]
+    if ams:
+        out["amendments"] = ams
+    for r in conn.execute("SELECT role, title, rg_date, rg_no FROM law_refs WHERE item_id=? ORDER BY id", (item_id,)):
+        ref = {"title": r["title"], "rg_date": r["rg_date"], "rg_no": r["rg_no"]}
+        if r["role"] == "base":
+            out["base"] = ref
+        else:
+            out.setdefault("repealed", []).append(ref)
+    return out
+
+
 def days(conn: sqlite3.Connection, limit: int = 400) -> list[dict]:
     rows = conn.execute(
         """SELECT issue_date d, COUNT(*) n, SUM(is_health) h FROM items
@@ -24,8 +40,8 @@ def day(conn: sqlite3.Connection, d: str) -> dict:
     health = [item_dict(r) for r in conn.execute(
         "SELECT * FROM items WHERE issue_date=? AND is_health=1 AND doc_type!='atama' ORDER BY importance DESC", (d,))]
     for h in health:
-        h["amendments"] = [dict(a) for a in conn.execute(
-            "SELECT target_law, article_ref, change_kind FROM amendments WHERE item_id=?", (h["id"],))]
+        h["amendments"] = []          # eski istemciler için alan her zaman bulunur
+        h.update(_legal(conn, h["id"]))
     apps = [dict(a) for a in conn.execute(
         """SELECT a.person, a.new_role, a.institution, a.predecessor, a.action,
                   a.is_key_role, a.is_health, i.url
@@ -34,6 +50,8 @@ def day(conn: sqlite3.Connection, d: str) -> dict:
     others = [item_dict(r) for r in conn.execute(
         """SELECT * FROM items WHERE issue_date=? AND is_health=0 AND doc_type!='ilan'
            ORDER BY importance DESC, id LIMIT 100""", (d,))]
+    for o in others:                  # sağlık dışı değişiklik / kaldırma kayıtları da farkı göstersin
+        o.update(_legal(conn, o["id"]))
     return {"date": d, "health": health, "appointments": apps, "others": others}
 
 

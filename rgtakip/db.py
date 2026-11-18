@@ -55,6 +55,17 @@ CREATE TABLE IF NOT EXISTS amendments (
     snippet TEXT
 );
 
+-- Değiştirilen ("base") ve yürürlükten kaldırılan ("repealed") mevzuat, Resmî Gazete künyesiyle
+CREATE TABLE IF NOT EXISTS law_refs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_id INTEGER NOT NULL REFERENCES items(id),
+    role TEXT NOT NULL,            -- base | repealed
+    title TEXT,
+    rg_date TEXT,                  -- "1/3/2019"
+    rg_no TEXT                     -- "30701"
+);
+CREATE INDEX IF NOT EXISTS idx_law_refs_item ON law_refs(item_id);
+
 -- Takip listeleri
 CREATE TABLE IF NOT EXISTS watches (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
