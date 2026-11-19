@@ -26,6 +26,7 @@ def main():
     d = datetime.strptime(a.date, "%Y-%m-%d").date() if a.date else date.today()
     conn = db.connect()
 
+    skipped = False
     if a.cmd == "run":
         if a.no_wait:
             html = None
@@ -41,7 +42,12 @@ def main():
             html = fetcher.wait_for_issue(d)
         if not html:
             raise SystemExit("Sayı alınamadı.")
-        print(pipeline.process_issue(conn, d, html, force=a.force))
+        if fetcher.is_no_issue(html):   # resmî tatil: işlenecek sayı yok, iş başarıyla biter
+            print("Resmî Gazete bu tarihte yayımlanmamış (resmî tatil):", d.isoformat())
+            return
+        stats = pipeline.process_issue(conn, d, html, force=a.force)
+        print(stats)
+        skipped = bool(stats.get("skipped"))   # o gün zaten işlenmişse (tekrarlı zamanlama) brifing yeniden gönderilmez
 
     if a.cmd in ("run", "reanalyze"):
         # Ağsız ve ucuz: son 45 günün mevzuat kayıtlarını güncel ayrıştırıcıyla yeniden çözümler
@@ -52,7 +58,7 @@ def main():
 
     text = briefing.build(conn, d)
     print(text)
-    if a.cmd == "run" and not a.no_send:
+    if a.cmd == "run" and not a.no_send and not skipped:
         print("Telegram:", "gönderildi" if notify.send_telegram(text) else "ayarlı değil")
 
 
