@@ -2,7 +2,12 @@ name: Günlük Resmi Gazete takibi
 
 on:
   schedule:
-    - cron: "5 21 * * *"
+    # 00:07, 00:27, 00:47, 01:07 (TR). GitHub zamanlanmış görevleri geç başlatabilir; ilk başlayan günü işler,
+    # sonrakiler "zaten işlendi" diyip sessizce biter (brifing yeniden gönderilmez).
+    - cron: "7 21 * * *"
+    - cron: "27 21 * * *"
+    - cron: "47 21 * * *"
+    - cron: "7 22 * * *"
   workflow_dispatch:
     inputs:
       date:
