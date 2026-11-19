@@ -93,3 +93,13 @@ def test_law_refs_ve_reanalyze():
     assert sorted(r["role"] for r in refs).count("repealed") == 1
     rows = conn.execute("SELECT item_id, article_ref FROM amendments WHERE article_ref='5. madde'").fetchall()
     assert len(rows) >= 1 and len(rows) == len({r["item_id"] for r in rows})
+
+
+def test_resmi_tatilde_sayi_beklenmez(monkeypatch):
+    from types import SimpleNamespace
+    from rgtakip import fetcher
+    notice = "15/7/2018 tarihli ve 30479 sayılı Resmî Gazete'de yayımlanan Kararname uyarınca bugün Resmî Gazete yayımlanmamaktadır."
+    monkeypatch.setattr(fetcher, "get", lambda url: SimpleNamespace(text=notice))
+    monkeypatch.setattr(fetcher.time, "sleep", lambda s: (_ for _ in ()).throw(AssertionError("beklememeli")))
+    assert fetcher.is_no_issue(fetcher.wait_for_issue(date(2026, 10, 29)))
+    assert not fetcher.is_no_issue("Yönetmelik " * 500)
