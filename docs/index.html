@@ -99,7 +99,7 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt
 const KIND = {degisti:'değişti', eklendi:'eklendi', yururlukten_kalkti:'kaldırıldı'};
 let tab = 'health', prevTab = 'health', searching = false, data = null, multi = false;
 
-const APP_VERSION = '1.11.4', APP_DATE = '18.11.2026';
+const APP_VERSION = '1.11.5', APP_DATE = '19.11.2026';
 const DEMO = new URLSearchParams(location.search).has('demo');   // ?demo=1 → örnek veri, sunucu gerekmez
 $('#foot').innerHTML = 'byRam ©ivelek · Sürüm ' + APP_VERSION + ' · ' + APP_DATE;
 
@@ -178,10 +178,17 @@ function today() {
   return d.toISOString().slice(0, 10);
 }
 const MAX_DAYS = 31;
-let latest = today();
+let latest = today(), firstDay = null;   // firstDay: takibin başladığı ilk gün
 const addDays = (iso, n) => { const d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
 const dayCount = (a, b) => Math.round((new Date(b + 'T12:00:00') - new Date(a + 'T12:00:00')) / 864e5) + 1;
 const trDate = iso => iso.split('-').reverse().join('.');
+const TR_AY = ['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
+const trLong = iso => { const [y, m, d] = iso.split('-'); return `${+d} ${TR_AY[+m - 1]} ${y}`; };
+// Boş liste mesajları hangi tarih/aralık için olduğunu söyler
+function scope() {
+  const [a, b] = range();
+  return a === b ? `${trLong(a)} tarihli sayıda` : `${trLong(a)} – ${trLong(b)} aralığında`;
+}
 function range() {
   let a = $('#from').value || $('#to').value || latest, b = $('#to').value || a;
   if (a > b) [a, b] = [b, a];
@@ -298,19 +305,26 @@ function render() {
   if (searching) return;
   updateCounts();
   if (!data) { m.innerHTML = '<div class="empty">Yükleniyor…</div>'; return; }
-  if (data.missing) { m.innerHTML = '<div class="empty">Seçilen tarih aralığında kayıt yok.<br>Veriler takibin başladığı günden itibaren birikir.</div>'; return; }
-  const warn = data.failed ? `<div class="note">${data.failed} günün verisi alınamadı; kalan günler gösteriliyor. Sayfayı yenileyip tekrar deneyin.</div>` : '';
+  if (data.missing) {
+    const [a, b] = range();
+    m.innerHTML = data.noIssue && data.noIssue.length && data.noIssue.length === data.days
+      ? `<div class="empty">${a === b ? trLong(a) : trLong(a) + ' – ' + trLong(b)}: kayıt yok.<br>Resmî tatil günlerinde, ilgili Cumhurbaşkanlığı Kararnamesi uyarınca Resmî Gazete yayımlanmaz.</div>`
+      : '<div class="empty">Seçilen tarih aralığında kayıt yok.<br>Veriler takibin başladığı günden itibaren birikir.</div>';
+    return;
+  }
+  const warn = (data.failed ? `<div class="note">${data.failed} günün verisi alınamadı; kalan günler gösteriliyor. Sayfayı yenileyip tekrar deneyin.</div>` : '') +
+    (data.noIssue && data.noIssue.length ? `<div class="note">Kayıt bulunmayan gün: ${data.noIssue.slice().sort().map(trLong).join(', ')} (resmî tatil nedeniyle Resmî Gazete yayımlanmamış olabilir).</div>` : '');
   if (tab === 'health') {
     const sbItems = [...data.health, ...data.others].filter(isSB).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-    m.innerHTML = warn + LEGEND + list(sbItems, i => itemCard(i, true), 'Bu aralıkta Sağlık Bakanlığı ile ilgili kayıt yok.');
+    m.innerHTML = warn + LEGEND + list(sbItems, i => itemCard(i, true), scope() + ' Sağlık Bakanlığı ile ilgili kayıt yok.');
   }
   if (tab === 'related') m.innerHTML = warn + '<div class="note">Sağlıkla ilgili ama Sağlık Bakanlığı\'na doğrudan bağlı olmayan kayıtlar (üniversite hastaneleri, sağlık bilimleri üniversiteleri, diğer kurumlar vb.)</div>' +
-    LEGEND + list(data.health.filter(i => !isSB(i)), itemCard, 'Bu aralıkta ilgili kayıt yok.');
+    LEGEND + list(data.health.filter(i => !isSB(i)), itemCard, scope() + ' ilgili kayıt yok.');
   if (tab === 'people') {
     const key = data.appointments.filter(a => a.is_health || a.is_key_role), rest = data.appointments.filter(a => !(a.is_health || a.is_key_role));
     m.innerHTML = warn + '<h2>Öne çıkanlar</h2>' + list(key, appCard, 'Öne çıkan atama yok.') + (rest.length ? '<h2>Diğer atamalar</h2>' + rest.map(a => appCard(a)).join('') : '');
   }
-  if (tab === 'other') m.innerHTML = warn + LEGEND + list(data.others.filter(i => !isSB(i)), itemCard, 'Kayıt yok.');
+  if (tab === 'other') m.innerHTML = warn + LEGEND + list(data.others.filter(i => !isSB(i)), itemCard, scope() + ' kayıt yok.');
 }
 
 async function load() {
@@ -325,9 +339,12 @@ async function load() {
     const res = await Promise.all(days.map(d => api('/api/day/' + d).then(r => ({d, r})).catch(err => ({d, err}))));
     const bad = res.filter(x => x.err);
     if (bad.length === res.length) throw bad[0].err;   // hepsi başarısızsa gerçek hata göster
-    const out = {health: [], appointments: [], others: [], missing: true, failed: bad.length};
+    const out = {health: [], appointments: [], others: [], missing: true, failed: bad.length, noIssue: [], days: days.length};
     for (const {d, r} of res) {
-      if (!r || r.missing) continue;
+      if (!r || r.missing) {   // takip edilen aralıkta ama kaydı olmayan gün: Resmî Gazete yayımlanmamış (resmî tatil)
+        if (firstDay && d >= firstDay && d <= latest) out.noIssue.push(d);
+        continue;
+      }
       out.missing = false;
       const stamp = x => ({...x, date: x.date || d});
       out.health.push(...r.health.map(stamp));
@@ -380,7 +397,7 @@ document.querySelectorAll('#chips button').forEach(b => b.onclick = () => { cons
   if (STATIC) {
     try {
       const days = await getJSON('data/days.json', true);
-      if (days && days.length) latest = days[0].date;
+      if (days && days.length) { latest = days[0].date; firstDay = days[days.length - 1].date; }
     } catch (e) {}
   }
   const chipBtns = document.querySelectorAll('#chips button');
