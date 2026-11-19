@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 import time
 from datetime import date, datetime
 
@@ -15,6 +16,12 @@ import requests
 from . import config
 
 log = logging.getLogger(__name__)
+
+_NO_ISSUE = re.compile(r"bugün\s+Resm[iî]\s+Gazete\s+yayımlanmamaktadır", re.I)   # "...uyarınca bugün Resmî Gazete yayımlanmamaktadır."
+
+
+def is_no_issue(text: str) -> bool:
+    return bool(text) and len(text) < 20000 and bool(_NO_ISSUE.search(text))
 
 _session = requests.Session()
 _session.headers["User-Agent"] = config.USER_AGENT
@@ -51,6 +58,9 @@ def wait_for_issue(d: date, kind: str = "normal") -> str | None:
         except requests.RequestException as e:
             log.warning("İstek hatası: %s", e)
             r = None
+        if r is not None and is_no_issue(r.text):   # resmî tatil: sayı hiç yayımlanmayacak, beklemeye gerek yok
+            log.info("Resmî Gazete bu tarihte yayımlanmıyor: %s", url)
+            return r.text
         if r is not None and len(r.text) > 500:
             log.info("Sayı bulundu: %s", url)
             return r.text
