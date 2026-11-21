@@ -75,6 +75,7 @@ def process_issue(conn: sqlite3.Connection, d: date, index_html: str,
             fetch_bodies_for == "all"
             or it.doc_type in ("atama", "yonetmelik", "teblig", "kanun", "khk", "cb_karari", "cb_kararname", "kurul_karari")
             or title_cls.health_score >= 15
+            or classifier.is_university_issuer(it.title)   # üniversite/fakülte/yüksekokul kararları: metne bak
         )
         # İlanlar: yalnızca başlığı sağlıkla ilgiliyse ("Sağlık Bakanlığı ... ilanı") metni çek
         if it.doc_type == "ilan":
