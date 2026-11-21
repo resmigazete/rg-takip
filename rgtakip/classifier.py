@@ -5,10 +5,17 @@ Katman 2 (sonra): belirsiz kayıtlar (skor 15-45) için LLM ile doğrulama/özet
 """
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 
-from .textutil import tr_lower
+from .textutil import tr_lower as _tr_lower
+
+
+def tr_lower(s: str) -> str:
+    """Türkçe küçük harf + şapkalı harfleri düzleştir (Tıbbî -> tıbbi, Beşerî -> beşeri)."""
+    return _tr_lower(s).replace("î", "i").replace("â", "a").replace("û", "u")
 
 # Sağlık Bakanlığı'na bağlı / ilişkili kuruluşlar (rozet ve skor için "Sağlık Bakanlığı" sayılır)
 AFFILIATE_PAT = (r"türkiye sağlık enstitüleri|tüseb|tuseb"
@@ -30,7 +37,7 @@ HEALTH_RULES: list[tuple[str, int, str]] = [
     (r"türkiye halk sağlığı|halk sağlığı", 30, "halk_sagligi"),
     (r"türkiye sağlık enstitüleri|tüseb|tuseb", 35, "arastirma"),
     (r"kamu hastaneler|şehir hastane|hastane", 25, "hastane_kurum"),
-    (r"ilaç|beşeri tıbbi|reçete|(?:tıbbi|ilaç|ürün|eczane|hastane|sağlık|cihaz)\\w*\\s+ruhsat", 25, "ilac_cihaz"),
+    (r"ilaç|beşeri tıbbi|reçete|(?:tıbbi|ilaç|ürün|eczane|hastane|sağlık|cihaz)\w*\s+ruhsat", 25, "ilac_cihaz"),
     (r"tıbbi cihaz|medikal|in vitro", 25, "ilac_cihaz"),
     (r"tıp fakülte|diş hekim|eczac|hemşire|ebe\b|ebelik|sağlık hizmetleri meslek", 25, "saglik_egitim"),
     (r"sağlık personel|hekim|uzman tabip|asistan|döner sermaye", 25, "saglik_personel"),
@@ -59,12 +66,52 @@ UNIV_HOSPITAL_RE = re.compile(
 )
 UNIV_HOSPITAL_W = 30
 
+# Sağlık eğitimi birimleri: Sağlık Bilimleri Üniversitesi, tıp/diş/eczacılık/hemşirelik fakülteleri,
+# sağlık meslek yüksekokulları. Başlıkta ya da metinde geçmesi yeterli (metin eşleşmesi yarıya düşmez).
+HEALTH_EDU_RE = re.compile(
+    r"sağlık\s+bilimleri\s+(?:üniversite|fakülte|enstitü|yüksek)"
+    r"|sağlık\s+meslek\s+yüksek|sağlık\s+yüksek\s*okul"
+    r"|sağlık\s+hizmetleri\s+(?:meslek|fakülte)"
+    r"|tıp\s+fakülte|diş\s+hekimliği\s+fakülte|eczacılık\s+fakülte|hemşirelik\s+fakülte"
+)
+HEALTH_EDU_W = 30
+
 # Kurum satırı üniversite/rektörlük ise ilanın metni de kontrol edilir (başlık "sağlık" taşımasa da)
 UNIVERSITY_ISSUER_RE = re.compile(r"üniversite|rektörlüğ")
 
 
 def is_university_issuer(text: str) -> bool:
     return UNIVERSITY_ISSUER_RE.search(tr_lower(text)) is not None
+
+
+# --- Kullanıcı anahtar kelimeleri (keywords.txt) ---------------------------------------------------
+# Her satır bir kelime/ifade. Başlıkta ya da metinde geçen kayıt sağlık sayılır ("Diğer Sağlık" sekmesi).
+# "[sb] kelime" satırı kaydı ayrıca "Sağlık Bakanlığı" sekmesine de ekler. "#" ile başlayan satırlar yorumdur.
+KEYWORDS_FILE = os.environ.get("RG_KEYWORDS", "keywords.txt")
+KEYWORD_W = 30   # tek bir kelime eşleşmesi kaydı sağlık saymaya yeter (eşik 25)
+
+
+def load_keywords(path: str | None = None) -> list[tuple[re.Pattern, bool, str]]:
+    p = Path(path or KEYWORDS_FILE)
+    out: list[tuple[re.Pattern, bool, str]] = []
+    if not p.is_file():
+        return out
+    for line in p.read_text(encoding="utf-8-sig").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        sb = line.lower().startswith("[sb]")
+        if sb:
+            line = line[4:].strip()
+        kw = tr_lower(line)
+        if len(kw) < 3:
+            continue
+        # kelime başında sınır ara (ek almış biçimleri yakalar: "glikoz" -> "glikozlu", "glikozun")
+        out.append((re.compile(r"(?<![a-zçğıöşü0-9])" + re.escape(kw)), sb, line))
+    return out
+
+
+USER_KEYWORDS = load_keywords()
 
 
 # Doküman türüne göre taban önem
@@ -174,6 +221,24 @@ def classify(title: str, body: str = "", doc_type: str = "diger", issuer: str | 
         if "universite_hastanesi" not in cats:
             cats.append("universite_hastanesi")
         reasons.append("universite_hastanesi")
+    # Sağlık eğitimi birimi (fakülte / sağlık meslek yüksekokulu / Sağlık Bilimleri Üniversitesi)
+    if HEALTH_EDU_RE.search(t) or HEALTH_EDU_RE.search(b):
+        score += HEALTH_EDU_W
+        if "saglik_egitim" not in cats:
+            cats.append("saglik_egitim")
+        reasons.append("saglik_egitim")
+    # Kullanıcı anahtar kelimeleri: başlıkta ya da metinde (ilk 30 bin karakter) geçmesi yeterli
+    kw_hit = False
+    if USER_KEYWORDS:
+        b_all = tr_lower(body[:30000])
+        for pat, sb, kw in USER_KEYWORDS:
+            if pat.search(t) or pat.search(b_all):
+                kw_hit = True
+                score += KEYWORD_W
+                for c in (["anahtar_kelime"] + (["saglik_bakanligi"] if sb else [])):
+                    if c not in cats:
+                        cats.append(c)
+                reasons.append(f"anahtar:{kw}")
     # Yayımlayan kurum (en güvenilir sinyal)
     if issuer is None:
         issuer = extract_issuer(body)
@@ -206,7 +271,7 @@ def classify(title: str, body: str = "", doc_type: str = "diger", issuer: str | 
             and not re.search(r"sağlık bakanlığ|" + AFFILIATE_PAT, t + " " + il)):
         cats.remove("saglik_bakanligi")
     # Jeotermal/maden ruhsat ihalesi gibi sağlık dışı konular: kurum ya da başlıkta sağlık sinyali yoksa ele
-    if (EXCLUDE_TITLE_RE.search(t) and not issuer_health
+    if (EXCLUDE_TITLE_RE.search(t) and not issuer_health and not kw_hit
             and not AFFILIATE_RE.search(t + " " + il) and not STRONG_HEALTH_RE.search(t)):
         score = 0
         cats = []
