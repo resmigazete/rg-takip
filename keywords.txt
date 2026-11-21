@@ -1,0 +1,10 @@
+# Anahtar kelimeler: başlıkta ya da metinde geçen kayıtlar sağlık sayılır ve "Diğer Sağlık" sekmesine düşer.
+# Her satıra bir kelime ya da ifade yazın; büyük/küçük harf ve Türkçe harf farkı önemli değildir.
+# Ek almış biçimler de yakalanır (glikoz -> glikozlu, glikozun).
+# "[sb]" ile başlayan satırlar kaydı ayrıca "Sağlık Bakanlığı" sekmesine de ekler.
+# Değişiklik, bir sonraki gece çalışmasında (ya da workflow elle çalıştırılınca) geçerli olur.
+
+glikoz
+insülin
+diyabet
+# [sb] organ nakli
