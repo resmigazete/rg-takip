@@ -18,6 +18,12 @@ from . import config
 
 log = logging.getLogger(__name__)
 
+_NO_ISSUE = re.compile(r"bugün\s+Resm[iî]\s+Gazete\s+yayımlanmamaktadır", re.I)   # "...uyarınca bugün Resmî Gazete yayımlanmamaktadır."
+
+
+def is_no_issue(text: str) -> bool:
+    return bool(text) and len(text) < 20000 and bool(_NO_ISSUE.search(text))
+
 _session = requests.Session()
 _session.headers["User-Agent"] = config.USER_AGENT
 
@@ -53,6 +59,9 @@ def wait_for_issue(d: date, kind: str = "normal") -> str | None:
         except requests.RequestException as e:
             log.warning("İstek hatası: %s", e)
             r = None
+        if r is not None and is_no_issue(r.text):   # resmî tatil: sayı hiç yayımlanmayacak, beklemeye gerek yok
+            log.info("Resmî Gazete bu tarihte yayımlanmıyor: %s", url)
+            return r.text
         if r is not None and len(r.text) > 500:
             log.info("Sayı bulundu: %s", url)
             return r.text
@@ -63,22 +72,21 @@ def wait_for_issue(d: date, kind: str = "normal") -> str | None:
         time.sleep(config.POLL_INTERVAL_SEC)
 
 
-_STOP = ("ve", "bir", "olarak", "kararı", "karar", "maddesi", "gereğince", "hakkında", "atanmıştır")
+_PDF_STOP = ("ve", "bir", "olarak", "kararı", "karar", "maddesi", "gereğince", "hakkında", "atanmıştır")
 
 
-def _garbled(text: str) -> bool:
-    """Metin katmanı yok / bozuk mu? (Resmi Gazete'nin atama PDF'leri gömülü yazı tipi eşlemesiz ve
-    metni resim olarak taşıyor: pypdf boş ya da anlamsız karakter döndürür.)"""
+def _pdf_garbled(text: str) -> bool:
+    """Metin katmanı yok/bozuk mu? (Atama PDF'lerinde yazı resim olarak gömülü; pypdf boş/anlamsız döner.)"""
     letters = len(re.findall(r"[A-Za-zÇĞİÖŞÜçğıöşü]", text))
     if letters < 200:
         return True
     words = re.findall(r"[a-zçğıöşü]+", text.lower())
-    return sum(w in _STOP for w in words) < 3
+    return sum(w in _PDF_STOP for w in words) < 3
 
 
 def ocr_pdf(data: bytes, max_pages: int = 12) -> str:
     """PDF'i sayfa sayfa resme çevirip Tesseract (Türkçe) ile okur.
-    Gerekli sistem paketleri: poppler-utils, tesseract-ocr, tesseract-ocr-tur."""
+    Sistem paketleri: poppler-utils, tesseract-ocr, tesseract-ocr-tur."""
     import pathlib
     import subprocess
     import tempfile
@@ -97,8 +105,8 @@ def ocr_pdf(data: bytes, max_pages: int = 12) -> str:
 
 
 def pdf_to_text(data: bytes) -> str:
-    """PDF baytlarından düz metin: önce metin katmanı, bozuksa OCR.
-    Satır sonlarında bölünen cümleleri birleştirir ('.' veya ':' ile bitmeyen satır sonrakiyle birleşir)."""
+    """PDF baytlarından düz metin: önce metin katmanı, bozuksa OCR. Satır sonlarında bölünen cümleleri birleştirir
+    ('.' veya ':' ile bitmeyen satır sonrakiyle birleşir)."""
     from pypdf import PdfReader
 
     try:
@@ -106,11 +114,24 @@ def pdf_to_text(data: bytes) -> str:
     except Exception as e:
         log.warning("PDF metin katmanı okunamadı: %s", type(e).__name__)
         text = ""
-    if _garbled(text):
+    if _pdf_garbled(text):
         log.info("PDF metin katmanı kullanılamıyor, OCR deneniyor")
         text = ocr_pdf(data)
     text = re.sub(r"[ \t]+", " ", text)
     return re.sub(r"(?<![.:])\n(?!\n)", " ", text).strip()
+
+
+def pdf_item_text(url: str) -> str:
+    """Bir ilan/karar PDF'inin metnini getirir; hata olursa boş döner (akışı durdurmaz)."""
+    r = _session.get(url, timeout=config.HTTP_TIMEOUT)
+    if r.status_code == 404:
+        return ""
+    r.raise_for_status()
+    try:
+        return pdf_to_text(r.content)
+    except Exception as e:
+        log.warning("PDF okunamadı %s: %s", url, type(e).__name__)
+        return ""
 
 
 def fetch_item_text(url: str) -> str:
@@ -118,15 +139,7 @@ def fetch_item_text(url: str) -> str:
     from bs4 import BeautifulSoup
 
     if url.lower().endswith(".pdf"):
-        r = _session.get(url, timeout=config.HTTP_TIMEOUT)
-        if r.status_code == 404:
-            return ""
-        r.raise_for_status()
-        try:
-            return pdf_to_text(r.content)
-        except Exception as e:  # bozuk/taranmış PDF akışı durdurmasın
-            log.warning("PDF okunamadı %s: %s", url, type(e).__name__)
-            return ""
+        return pdf_item_text(url)
     r = get(url)
     if r is None:
         return ""
