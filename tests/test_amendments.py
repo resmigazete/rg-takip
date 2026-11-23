@@ -178,3 +178,17 @@ def test_fikra_bilgisi_gercek_metin():
         ("6. madde (1, 7. fık.)", "yururlukten_kalkti"),
         ("6. madde (3, 4, 5, 6. fık.)", "degisti"),
     }
+
+
+def test_buyuk_harfli_fikra_sozcukleri_cokertmez():
+    """'İkinci', 'ALTINCI', 'BİRİNCİ' gibi büyük harfli yazımlar (Türkçe İ/I) hata vermemeli."""
+    b = """
+MADDE 1-
+Aynı Yönetmeliğin 6 ncı maddesinin İkinci fıkrası yürürlükten kaldırılmıştır.
+MADDE 2-
+Aynı Yönetmeliğin 7 nci maddesinin BİRİNCİ ve ALTINCI fıkraları aşağıdaki şekilde değiştirilmiştir.
+"""
+    a = analyze("Örnek Yönetmelikte Değişiklik Yapılmasına Dair Yönetmelik", b)
+    got = {(x.article_ref, x.change_kind) for x in a.amendments}
+    assert ("6. madde (2. fık.)", "yururlukten_kalkti") in got
+    assert ("7. madde (1, 6. fık.)", "degisti") in got
