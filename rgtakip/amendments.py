@@ -164,8 +164,19 @@ def _item_label(item: str) -> str:
     return f"{prefix} {m.group(2)}".strip()
 
 
+def _tr_lower(s: str) -> str:
+    """Türkçe küçük harf: İ→i, I→ı (Python'un varsayılanı 'İ'yi i + birleşik nokta yapar)."""
+    return s.replace("İ", "i").replace("I", "ı").lower()
+
+
 def _fik_label(fl: str) -> str:
-    nums = [_FIK[re.sub(r"\s+", " ", w.lower())] for w in re.findall(_ORDW, fl, re.I)]
+    nums = []
+    for w in re.findall(_ORDW, fl, re.I):
+        n = _FIK.get(re.sub(r"\s+", " ", _tr_lower(w)))
+        if n:                               # bilinmeyen sözcük çökertmesin
+            nums.append(n)
+    if not nums:
+        return ""
     if nums == ["son"]:
         return "son fık."
     return ", ".join(nums) + ". fık."

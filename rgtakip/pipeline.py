@@ -19,7 +19,11 @@ def store_legal(conn: sqlite3.Connection, item_id: int, title: str, body: str) -
     Tekrar çalıştırılabilir: önce o kaydın eski satırlarını siler."""
     conn.execute("DELETE FROM amendments WHERE item_id=?", (item_id,))
     conn.execute("DELETE FROM law_refs WHERE item_id=?", (item_id,))
-    an = amendments.analyze(title, body or "")
+    try:
+        an = amendments.analyze(title, body or "")
+    except Exception:   # tek bir kaydın ayrıştırma hatası günün tamamını durdurmasın
+        log.exception("Mevzuat ayrıştırılamadı (kayıt atlandı): %s", title[:80])
+        return
     for am in an.amendments:
         conn.execute(
             "INSERT INTO amendments(item_id,target_law,article_ref,change_kind,snippet) VALUES (?,?,?,?,?)",
