@@ -1,8 +1,9 @@
 """Komut satırı.
 
-  python main.py run                 # bugünü bekle, işle, brifingi gönder (cron: 00:05)
+  python main.py run                 # bugünü bekle, işle; Telegram'a YALNIZCA atama kararlarını gönder (cron: 00:05)
   python main.py run --date 2026-11-16 --no-wait
-  python main.py brief --date 2026-11-16   # yalnızca brifing metnini yazdır
+  python main.py brief --date 2026-11-16   # yalnızca (tam) brifing metnini yazdır
+  python main.py atama --date 2026-11-16   # Telegram'a gidecek atama mesajını yazdır (göndermez)
   python main.py reanalyze [--date 2026-11-10]   # kayıtlı metinlerden madde farkını yeniden hesapla (ağ yok)
 """
 import argparse
@@ -15,7 +16,7 @@ from rgtakip import briefing, db, fetcher, notify, pipeline
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["run", "brief", "reanalyze"])
+    ap.add_argument("cmd", choices=["run", "brief", "atama", "reanalyze"])
     ap.add_argument("--date", help="YYYY-MM-DD (varsayılan: bugün)")
     ap.add_argument("--no-wait", action="store_true", help="yoklamadan tek deneme")
     ap.add_argument("--no-send", action="store_true", help="Telegram'a gönderme")
@@ -56,10 +57,17 @@ def main():
     if a.cmd == "reanalyze":
         return
 
-    text = briefing.build(conn, d)
-    print(text)
+    if a.cmd == "atama":
+        print(briefing.build_atamalar(conn, d) or "Bu tarihte atama kararı yok.")
+        return
+
+    print(briefing.build(conn, d))            # günlük kaydı (log) için tam brifing
     if a.cmd == "run" and not a.no_send and not skipped:
-        print("Telegram:", "gönderildi" if notify.send_telegram(text) else "ayarlı değil")
+        atama = briefing.build_atamalar(conn, d)   # Telegram'a yalnızca atamalar gider
+        if not atama:
+            print("Telegram: bu tarihte atama kararı yok, mesaj gönderilmedi")
+        else:
+            print("Telegram:", "gönderildi" if notify.send_telegram(atama) else "ayarlı değil")
 
 
 if __name__ == "__main__":
