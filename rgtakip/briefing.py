@@ -14,6 +14,28 @@ TYPE_LABEL = {
 ROLE_ICON = {"Vali": "🏛", "Rektör": "🎓"}
 
 
+def build_atamalar(conn: sqlite3.Connection, d: date) -> str:
+    """Telegram için YALNIZCA atama kararları: günün tüm atama/görevden alma kayıtları, karara göre gruplu.
+    O gün atama yoksa boş metin döner (Telegram'a hiçbir şey gönderilmez)."""
+    rows = conn.execute(
+        """SELECT a.*, i.title item_title, i.url item_url FROM appointments a
+           JOIN items i ON i.id=a.item_id WHERE i.issue_date=? ORDER BY i.id, a.id""", (d.isoformat(),)).fetchall()
+    if not rows:
+        return ""
+    groups: dict[str, list] = {}
+    for a in rows:
+        groups.setdefault(a["item_id"], []).append(a)
+    lines = [f"👤 Resmi Gazete – Atama Kararları – {d.strftime('%d.%m.%Y')}", f"{len(rows)} kayıt"]
+    for items in groups.values():
+        lines += ["", f"📄 {items[0]['item_title']}", items[0]["item_url"]]
+        for a in items:
+            icon = "🩺" if a["is_health"] else ROLE_ICON.get(a["new_role"], "•")
+            verb = "görevden alındı" if a["action"] == "gorevden_alma" else "atandı"
+            pred = f" (yerine: {a['predecessor']})" if a["predecessor"] else ""
+            lines.append(f"{icon} {a['institution']}: {a['person']} {verb}{pred}")
+    return "\n".join(lines)
+
+
 def build(conn: sqlite3.Connection, d: date, min_importance: int | None = None) -> str:
     mi = config.MIN_IMPORTANCE if min_importance is None else min_importance
     iso = d.isoformat()
