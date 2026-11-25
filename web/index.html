@@ -281,7 +281,7 @@ function appCard(a) {
     <div class="tags">${multi && a.date ? `<span class="tag d">${trDate(a.date)}</span>` : ''}<span class="tag">${icon} ${esc(a.new_role || 'Görev')}</span>${a.is_health ? '<span class="tag imp">Sağlık</span>' : ''}</div>
     <div class="title">${esc(a.institution)}</div>
     <div>${esc(a.person)} ${verb}</div>
-    ${a.predecessor ? `<div class="mut">Yerine: ${esc(a.predecessor)}</div>` : ''}</a>
+    ${a.predecessor ? `<div class="mut">${/^Önceki görev:/.test(a.predecessor) ? '' : 'Yerine: '}${esc(a.predecessor)}</div>` : ''}</a>
     ${shareBtn(a.person + ' ' + verb + ' — ' + a.institution, a.url)}</div>`;
 }
 const list = (arr, fn, empty) => arr.length ? arr.map(x => fn(x)).join('') : `<div class="empty">${empty}</div>`;
