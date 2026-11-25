@@ -14,6 +14,31 @@ TYPE_LABEL = {
 ROLE_ICON = {"Vali": "🏛", "Rektör": "🎓"}
 
 
+def _kompakt(items) -> list[str]:
+    on = lambda a: (a["predecessor"] or "").replace("Önceki görev:", "").strip()
+    emre = lambda a: a["institution"].lower().endswith("emrine")
+    groups = [
+        ("Görevden alındı", lambda a: a["action"] == "gorevden_alma"),
+        ("Vali atamaları", lambda a: a["new_role"] == "Vali"),
+        ("İçişleri Bakanlığı emrine alındı", emre),
+        ("Diğer atamalar", lambda a: True),
+    ]
+    left, out = list(items), []
+    for title, f in groups:
+        g = [a for a in left if f(a)]
+        left = [a for a in left if a not in g]
+        if not g:
+            continue
+        out += ["", f"▪️ {title} ({len(g)})"]
+        for a in g:
+            if emre(a):
+                out.append(f"• {a['person']}" + (f" ({on(a)})" if on(a) else ""))
+            else:
+                icon = "🩺" if a["is_health"] else "•"
+                out.append(f"{icon} {a['institution']}: {a['person']}" + (f" ← {on(a)}" if on(a) else ""))
+    return out
+
+
 def build_atamalar(conn: sqlite3.Connection, d: date) -> str:
     """Telegram için YALNIZCA atama kararları: günün tüm atama/görevden alma kayıtları, karara göre gruplu.
     O gün atama yoksa boş metin döner (Telegram'a hiçbir şey gönderilmez)."""
@@ -28,6 +53,9 @@ def build_atamalar(conn: sqlite3.Connection, d: date) -> str:
     lines = [f"👤 Resmi Gazete – Atama Kararları – {d.strftime('%d.%m.%Y')}", f"{len(rows)} kayıt"]
     for items in groups.values():
         lines += ["", f"📄 {items[0]['item_title']}", items[0]["item_url"]]
+        if len(items) > 8:                       # toplu karar: gruplu, kısa satırlar
+            lines += _kompakt(items)
+            continue
         for a in items:
             icon = "🩺" if a["is_health"] else ROLE_ICON.get(a["new_role"], "•")
             verb = "görevden alındı" if a["action"] == "gorevden_alma" else "atandı"
