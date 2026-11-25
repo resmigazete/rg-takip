@@ -52,6 +52,11 @@
   .tag.imp { background:var(--brand); color:#fff; }
   .title { font-weight:600; margin:6px 0 2px; }
   .mut { color:var(--mut); font-size:14px; }
+  .agrp { margin:10px 0; background:var(--card,#fff); border-radius:12px; padding:4px 12px; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+  .agrp summary { font-weight:700; padding:10px 0; cursor:pointer; }
+  .agrp .cnt { background:#e8eef5; border-radius:10px; padding:1px 8px; font-size:13px; margin-left:6px; }
+  .arow { display:flex; flex-direction:column; gap:1px; padding:8px 0; border-top:1px solid rgba(128,128,128,.2); text-decoration:none; color:inherit; font-size:15px; }
+  .arow.imp { border-left:3px solid #c0392b; padding-left:8px; }
   .chg { margin-top:6px; font-size:13px; color:var(--warn); }
   h2 { font-size:15px; margin:18px 4px 8px; color:var(--mut); font-weight:650; text-transform:uppercase; letter-spacing:.04em; }
   #bottom { position:fixed; bottom:0; left:0; right:0; background:var(--card); border-top:1px solid var(--line);
@@ -284,6 +289,27 @@ function appCard(a) {
     ${a.predecessor ? `<div class="mut">${/^Önceki görev:/.test(a.predecessor) ? '' : 'Yerine: '}${esc(a.predecessor)}</div>` : ''}</a>
     ${shareBtn(a.person + ' ' + verb + ' — ' + a.institution, a.url)}</div>`;
 }
+// Çok sayıda atama olan günlerde (toplu karar) kompakt, gruplu okuma düzeni
+function appRow(a) {
+  const prev = (a.predecessor || '').replace(/^Önceki görev:\s*/, '');
+  const emre = /emrine$/i.test(a.institution);
+  const left = emre ? esc(a.person) : `<b>${esc(a.institution)}</b>`;
+  const right = emre ? `<span class="mut">${esc(prev)}</span>` : `${esc(a.person)}${prev ? ` <span class="mut">← ${esc(prev)}</span>` : ''}`;
+  return `<a class="arow${a.is_health ? ' imp' : ''}" href="${esc(a.url)}" target="_blank" rel="noopener"><span>${left}</span><span>${right}</span></a>`;
+}
+function compactApps(arr) {
+  const groups = [
+    ['Görevden alındı', a => a.action === 'gorevden_alma'],
+    ['Vali atamaları', a => a.new_role === 'Vali'],
+    ['İçişleri Bakanlığı emrine alındı', a => /emrine$/i.test(a.institution)],
+    ['Diğer atamalar', () => true],
+  ];
+  const left = new Set(arr);
+  return groups.map(([t, f]) => {
+    const g = [...left].filter(f); g.forEach(a => left.delete(a));
+    return g.length ? `<details open class="agrp"><summary>${t} <span class="cnt">${g.length}</span></summary>${g.map(appRow).join('')}</details>` : '';
+  }).join('');
+}
 const list = (arr, fn, empty) => arr.length ? arr.map(x => fn(x)).join('') : `<div class="empty">${empty}</div>`;
 
 const TAB_NAMES = {health:'Sağlık Bakanlığı', related:'Diğer Sağlık', people:'Atamalar', other:'Genel'};
@@ -323,6 +349,7 @@ function render() {
     LEGEND + list(data.health.filter(i => !isSB(i)), itemCard, scope() + ' ilgili kayıt yok.');
   if (tab === 'people') {
     const key = data.appointments.filter(a => a.is_health || a.is_key_role), rest = data.appointments.filter(a => !(a.is_health || a.is_key_role));
+    if (data.appointments.length > 8) { m.innerHTML = warn + compactApps(data.appointments); return; }
     m.innerHTML = warn + '<h2>Öne çıkanlar</h2>' + list(key, appCard, 'Öne çıkan atama yok.') + (rest.length ? '<h2>Diğer atamalar</h2>' + rest.map(a => appCard(a)).join('') : '');
   }
   if (tab === 'other') m.innerHTML = warn + LEGEND + list(data.others.filter(i => !isSB(i)), itemCard, scope() + ' kayıt yok.');
