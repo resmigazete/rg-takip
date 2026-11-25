@@ -1,6 +1,6 @@
 // RG Sağlık Takip – service worker
 // Ağ öncelikli: önce güncel dosya alınır, çevrimdışıysa son kaydedilen kopya gösterilir.
-const CACHE = 'rg-1.8.7';
+const CACHE = 'rg-1.11.7';
 
 self.addEventListener('install', () => self.skipWaiting());
 
