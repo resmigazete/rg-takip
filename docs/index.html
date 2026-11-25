@@ -104,7 +104,7 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt
 const KIND = {degisti:'değişti', eklendi:'eklendi', yururlukten_kalkti:'kaldırıldı'};
 let tab = 'health', prevTab = 'health', searching = false, data = null, multi = false;
 
-const APP_VERSION = '1.11.6', APP_DATE = '21.11.2026';
+const APP_VERSION = '1.11.7', APP_DATE = '25.11.2026';
 const DEMO = new URLSearchParams(location.search).has('demo');   // ?demo=1 → örnek veri, sunucu gerekmez
 $('#foot').innerHTML = 'byRam ©ivelek · Sürüm ' + APP_VERSION + ' · ' + APP_DATE;
 
