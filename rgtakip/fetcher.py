@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import os
 import logging
 import re
 import time
@@ -84,8 +85,133 @@ def _pdf_garbled(text: str) -> bool:
     return sum(w in _PDF_STOP for w in words) < 3
 
 
+def _read_pgm(path) -> tuple[int, int, bytearray]:
+    """Ham (P5) gri tonlamalı PGM dosyasını okur: (genişlik, yükseklik, bayt dizisi)."""
+    raw = open(path, "rb").read()
+    parts, pos = [], 0
+    while len(parts) < 4:                      # P5 genişlik yükseklik maxval
+        while raw[pos:pos + 1].isspace():
+            pos += 1
+        if raw[pos:pos + 1] == b"#":
+            pos = raw.index(b"\n", pos)
+            continue
+        end = pos
+        while not raw[end:end + 1].isspace():
+            end += 1
+        parts.append(raw[pos:end])
+        pos = end
+    w, h = int(parts[1]), int(parts[2])
+    return w, h, bytearray(raw[pos + 1: pos + 1 + w * h])
+
+
+def _write_pgm(path, w: int, h: int, data) -> None:
+    with open(path, "wb") as fh:
+        fh.write(b"P5\n%d %d\n255\n" % (w, h))
+        fh.write(bytes(data))
+
+
+_DARK = bytes(1 if i < 150 else 0 for i in range(256))   # bayt -> koyu mu (1) açık mı (0)
+
+
+def _runs(idx: list[int]) -> list[int]:
+    """Ardışık indeksleri tek çizgide topla, çizgi merkezlerini döndür."""
+    out, start, prev = [], None, None
+    for i in idx:
+        if start is None:
+            start = prev = i
+        elif i == prev + 1:
+            prev = i
+        else:
+            out.append((start + prev) // 2)
+            start = prev = i
+    if start is not None:
+        out.append((start + prev) // 2)
+    return out
+
+
+def find_grid(w: int, h: int, gray) -> tuple[list[int], list[int]] | None:
+    """Sayfadaki tablo ızgarasını (yatay çizgi y'leri, dikey çizgi x'leri) bulur; tablo yoksa None."""
+    dark = bytes(gray).translate(_DARK)
+    rows = [int.from_bytes(dark[y * w:(y + 1) * w], "big") for y in range(h)]
+    ys = [y for y in range(1, h - 1)
+          if bin(rows[y - 1] | rows[y] | rows[y + 1]).count("1") >= 0.38 * w]   # soluk/kopuk çizgiler için ±1 satır
+    hlines = _runs(ys)
+    if len(hlines) < 3:
+        return None
+    top, bot = hlines[0], hlines[-1]
+    row = bytes(a | b | c for a, b, c in zip(dark[(top - 1) * w:top * w], dark[top * w:(top + 1) * w],
+                                              dark[(top + 1) * w:(top + 2) * w]))
+    x0, x1 = row.find(1), row.rfind(1)
+    span = max(bot - top, 1)
+    # Taranmış belgelerde dikey çizgi ince ve dalgalıdır: her sütunu ±2 piksel komşusuyla birleştirip yoğunluğa bak
+    lo, hi = max(x0 - 6, 0), min(x1 + 7, w)
+    col = {x: int.from_bytes(dark[top * w + x: bot * w + x + 1: w], "big") for x in range(lo, hi)}
+    xs = []
+    for x in range(lo + 2, hi - 2):
+        merged = col[x - 2] | col[x - 1] | col[x] | col[x + 1] | col[x + 2]
+        if bin(merged).count("1") >= 0.55 * span:
+            xs.append(x)
+    vlines = _runs(xs)
+    if len(vlines) < 3:
+        return None
+    if vlines[-1] < x1 - 60:          # soluk/kopuk kenar çizgisini yatay çizgilerin uç noktasından tamamla
+        vlines.append(x1)
+    if vlines[0] > x0 + 60:
+        vlines.insert(0, x0)
+    return hlines, vlines
+
+
+def _ocr_cell(job) -> str:
+    """Tek bir hücrenin kırpılmış görüntüsünü Tesseract ile okur."""
+    import subprocess
+
+    path, digits = job
+    cmd = ["tesseract", path, "-", "-l", "tur", "--psm", "7" if digits else "6", "-c", "preserve_interword_spaces=1"]
+    if digits:
+        cmd += ["-c", "tessedit_char_whitelist=0123456789"]
+    env = {**os.environ, "OMP_THREAD_LIMIT": "1"}
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=60, env=env)
+    return " ".join(r.stdout.split())
+
+
+def _table_rows(tmpdir, grid, w, h, gray) -> list[list[str]]:
+    """Izgara hücrelerini tek tek kırpıp OCR'lar (sütunlar birbirine karışmaz). Boş hücreler okunmaz."""
+    import pathlib
+    from concurrent.futures import ThreadPoolExecutor
+
+    hlines, vlines = grid
+    pad = 6
+    jobs, index = [], []
+    for ri in range(len(hlines) - 1):
+        y0, y1 = hlines[ri] + pad, hlines[ri + 1] - pad
+        if y1 - y0 < 15:
+            continue
+        for ci in range(len(vlines) - 1):
+            x0, x1 = vlines[ci] + pad, vlines[ci + 1] - pad
+            if x1 - x0 < 15:
+                continue
+            cell = bytearray()
+            for y in range(y0, y1):
+                cell += gray[y * w + x0: y * w + x1]
+            if bytes(cell).translate(_DARK).count(1) < 40:      # boş hücre
+                continue
+            p = pathlib.Path(tmpdir) / f"c{ri}_{ci}.pgm"
+            _write_pgm(p, x1 - x0, y1 - y0, cell)
+            jobs.append((str(p), ci == 0))
+            index.append((ri, ci))
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        texts = list(ex.map(_ocr_cell, jobs))
+    ncol = len(vlines) - 1
+    rows = [[""] * ncol for _ in range(len(hlines) - 1)]
+    for (ri, ci), t in zip(index, texts):
+        rows[ri][ci] = t
+    return rows
+
+
 def ocr_pdf(data: bytes, max_pages: int = 12) -> str:
     """PDF'i sayfa sayfa resme çevirip Tesseract (Türkçe) ile okur.
+    Izgaralı tablolar (örn. Cumhurbaşkanlığı atama listesi: Adı Soyadı | Mevcut Görevi | Atandığı Görev) sütun/satır
+    konumlarına göre okunur ve 'TABLO|sıra|ad|mevcut|atandığı|' satırları olarak döner; düz sayfalar eskisi gibi okunur.
     Sistem paketleri: poppler-utils, tesseract-ocr, tesseract-ocr-tur."""
     import pathlib
     import subprocess
@@ -94,10 +220,20 @@ def ocr_pdf(data: bytes, max_pages: int = 12) -> str:
     with tempfile.TemporaryDirectory() as d:
         pdf = pathlib.Path(d) / "a.pdf"
         pdf.write_bytes(data)
-        subprocess.run(["pdftoppm", "-r", "200", "-l", str(max_pages), "-png", str(pdf), str(pathlib.Path(d) / "p")],
-                       check=True, timeout=180)
+        subprocess.run(["pdftoppm", "-r", "300", "-gray", "-l", str(max_pages), str(pdf), str(pathlib.Path(d) / "p")],
+                       check=True, timeout=300)
         pages = []
-        for img in sorted(pathlib.Path(d).glob("p-*.png")):
+        for img in sorted(pathlib.Path(d).glob("p-*.pgm")):
+            w, h, gray = _read_pgm(img)
+            grid = None
+            try:
+                grid = find_grid(w, h, gray)
+            except Exception as e:   # ızgara bulunamazsa düz OCR'a düş
+                log.warning("Tablo algılanamadı: %s", type(e).__name__)
+            if grid:
+                rows = _table_rows(d, grid, w, h, gray)
+                pages.append("\n".join("TABLO|" + "|".join(c.replace("|", "/") for c in r) + "|" for r in rows if any(r)))
+                continue
             r = subprocess.run(["tesseract", str(img), "-", "-l", "tur", "--psm", "6"],
                                capture_output=True, text=True, timeout=180)
             pages.append(r.stdout)
@@ -118,7 +254,7 @@ def pdf_to_text(data: bytes) -> str:
         log.info("PDF metin katmanı kullanılamıyor, OCR deneniyor")
         text = ocr_pdf(data)
     text = re.sub(r"[ \t]+", " ", text)
-    return re.sub(r"(?<![.:])\n(?!\n)", " ", text).strip()
+    return re.sub(r"(?<![.:|])\n(?!\n)", " ", text).strip()
 
 
 def pdf_item_text(url: str) -> str:

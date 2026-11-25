@@ -31,7 +31,8 @@ def build_atamalar(conn: sqlite3.Connection, d: date) -> str:
         for a in items:
             icon = "🩺" if a["is_health"] else ROLE_ICON.get(a["new_role"], "•")
             verb = "görevden alındı" if a["action"] == "gorevden_alma" else "atandı"
-            pred = f" (yerine: {a['predecessor']})" if a["predecessor"] else ""
+            pred = (f" ({a['predecessor'] if a['predecessor'].startswith('Önceki görev:') else 'yerine: ' + a['predecessor']})"
+                if a["predecessor"] else "")
             lines.append(f"{icon} {a['institution']}: {a['person']} {verb}{pred}")
     return "\n".join(lines)
 
@@ -67,6 +68,7 @@ def build(conn: sqlite3.Connection, d: date, min_importance: int | None = None) 
     for a in apps[:25]:
         icon = ROLE_ICON.get(a["new_role"], "•")
         verb = "görevden alındı" if a["action"] == "gorevden_alma" else "atandı"
-        pred = f" (yerine: {a['predecessor']})" if a["predecessor"] else ""
+        pred = (f" ({a['predecessor'] if a['predecessor'].startswith('Önceki görev:') else 'yerine: ' + a['predecessor']})"
+                if a["predecessor"] else "")
         lines.append(f"{icon} {a['institution']}: {a['person']} {verb}{pred}")
     return "\n".join(lines)

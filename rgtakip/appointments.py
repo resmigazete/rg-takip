@@ -147,8 +147,81 @@ def _cb_sentence(s: str) -> list[Appointment]:
 _ABBR = re.compile(r"\b(Prof|Dr|Doç|Av|Uzm|Yrd|Öğr|Üyesi|Müh|Alb|Org|Tuğg|Kd|Bşk|No|Sn)\.", re.I)
 
 
-def extract(text: str) -> list[Appointment]:
+# --- Izgaralı atama listesi (OCR çıktısı: "TABLO|sıra|Ad SOYAD|Mevcut görevi|Atandığı görev|") ---------------
+_TABLO = re.compile(r"^[ \t]*TABLO\|([^|\n]*)\|([^|\n]*)\|([^|\n]*)\|([^|\n]*)\|?[ \t]*$", re.M)
+_ILLER = (
+    "Adana Adıyaman Afyonkarahisar Ağrı Aksaray Amasya Ankara Antalya Ardahan Artvin Aydın Balıkesir Bartın Batman "
+    "Bayburt Bilecik Bingöl Bitlis Bolu Burdur Bursa Çanakkale Çankırı Çorum Denizli Diyarbakır Düzce Edirne Elazığ "
+    "Erzincan Erzurum Eskişehir Gaziantep Giresun Gümüşhane Hakkâri Hatay Iğdır Isparta İstanbul İzmir Kahramanmaraş "
+    "Karabük Karaman Kars Kastamonu Kayseri Kırıkkale Kırklareli Kırşehir Kilis Kocaeli Konya Kütahya Malatya Manisa "
+    "Mardin Mersin Muğla Muş Nevşehir Niğde Ordu Osmaniye Rize Sakarya Samsun Siirt Sinop Sivas Şanlıurfa Şırnak "
+    "Tekirdağ Tokat Trabzon Tunceli Uşak Van Yalova Yozgat Zonguldak").split()
+# Tesseract'ın Türkçe karakterlerde sık yaptığı hatalar (ş→s, İ→I, a→e vb.)
+_OCR_FIX = {
+    "Baskanı": "Başkanı", "Baskan": "Başkan", "Baskanlığı": "Başkanlığı", "Iliskiler": "İlişkiler", "iliskiler": "ilişkiler",
+    "Dis": "Dış", "Gelistirme": "Geliştirme", "Idaresi": "İdaresi", "Müsaviri": "Müşaviri", "Velisi": "Valisi",
+    "Müdür": "Müdür", "Mülkiye": "Mülkiye", "Başmüfetişi": "Başmüfettişi", "Teftiş": "Teftiş", "Tefti": "Teftiş",
+    "Hizmetleri": "Hizmetleri", "Sekreterliği": "Sekreterliği", "Yönetimi": "Yönetimi",
+}
+
+
+def _fix_place(tok: str) -> str:
+    """'Edime'→'Edirne', 'Şımak'→'Şırnak' gibi il adı OCR hatalarını en yakın il adına çevirir."""
+    import difflib
+    if tok in _ILLER:
+        return tok
+    key = lambda s: s.lower().replace("ı", "i").replace("rn", "m")
+    by = {key(i): i for i in _ILLER}
+    m = difflib.get_close_matches(key(tok), list(by), n=1, cutoff=0.8)
+    return by[m[0]] if m else tok
+
+
+def _clean_cell(s: str, *, place_before: str = "Valisi") -> str:
+    s = normalize(s).strip(" ,.;:|/-–—_©")
+    toks = s.split()
+    out = []
+    for i, t in enumerate(toks):
+        t = _OCR_FIX.get(t, t)
+        if i + 1 < len(toks) and toks[i + 1] in (place_before, "Velisi"):   # "<il> Valisi"
+            t = _fix_place(t)
+        out.append(t)
+    return " ".join(out)
+
+
+def _clean_name(s: str) -> str:
+    s = normalize(s).strip(" ,.;:|/-–—_©")
+    s = re.sub(r"(?<=[a-zçğıöşü])(?=[A-ZÇĞİÖŞÜ]{2,})", " ", s)     # "ZiyaPOLAT" -> "Ziya POLAT"
+    s = re.sub(r"^(?:[a-zçğıöşü]{1,2}\s+)+", "", s)                  # baştaki OCR çöpü ("i İsmail" -> "İsmail")
+    return s
+
+
+_NEW_ROLE = (("Genel Müdürü", "Genel Müdür"), ("Müsteşarı", "Müsteşar"), ("Valisi", "Vali"),
+             ("Rektörü", "Rektör"), ("Başmüfettişi", "Başmüfettiş"), ("Başkanı", "Başkan"))
+
+
+def _table_appointments(text: str) -> tuple[list[Appointment], str]:
+    """TABLO| satırlarını Appointment listesine çevirir; metinden bu satırları çıkarıp döndürür."""
     out: list[Appointment] = []
+    for m in _TABLO.finditer(text):
+        name, now, new = _clean_name(m.group(2)), _clean_cell(m.group(3)), _clean_cell(m.group(4))
+        if not name or not new or re.search(r"ADI\s*SOYADI|MEVCUT|ATANDI", name + now + new, re.I):
+            continue                                              # başlık/boş satır
+        if len(name.split()) < 2:
+            continue
+        emre = new.lower().endswith("emrine")
+        role = "" if emre else next((r for k, r in _NEW_ROLE if new.endswith(k)), "Diğer")
+        low = tr_lower(new + " " + now)
+        out.append(Appointment(
+            person=name, new_role=role, institution=new, predecessor=f"Önceki görev: {now}" if now else "",
+            action="atama", is_key_role=(role in KEY_ROLES) or (emre and "vali" in tr_lower(now)),
+            is_health=bool(HEALTH_INST.search(low)), raw=m.group(0).strip()))
+    return out, _TABLO.sub("", text)
+
+
+def extract(text: str) -> list[Appointment]:
+    out, text = _table_appointments(text)
+    text = re.sub(r"(?m)^\S{1,3}\s+C\*\s*", "", text)          # OCR çöpü ("Oi C* Cumhurbaşkanlığından:")
+    text = re.sub(r"\b\S{1,3}\s+C\*\s*(?=\S)", "", text)
     # Unvan kısaltmalarındaki noktalar cümle sonu sayılmasın
     text = _ABBR.sub(lambda m: m.group(1) + "§", normalize(text))
     # Cumhurbaşkanlığı atama kararı: başlık/imza ve "N sayılı ... gereğince" dayanak ibaresini at
