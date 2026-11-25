@@ -23,3 +23,17 @@ def test_gercek_pdf():
     r = ap.extract(fetcher.pdf_to_text(PDF.read_bytes()))
     assert len(r) >= 59
     assert any(x.person == "Bülent AY" for x in r)
+
+
+def test_telegram_kompakt():
+    import sqlite3
+    from datetime import date
+    from rgtakip import briefing
+    c = sqlite3.connect(":memory:"); c.row_factory = sqlite3.Row
+    c.executescript("CREATE TABLE items(id,issue_date,title,url);CREATE TABLE appointments(id INTEGER PRIMARY KEY,item_id,person,new_role,institution,predecessor,action,is_key_role,is_health);")
+    c.execute("INSERT INTO items VALUES(1,'2026-11-25','Karar','http://x')")
+    for i in range(10):
+        c.execute("INSERT INTO appointments(item_id,person,new_role,institution,predecessor,action,is_key_role,is_health) VALUES(1,?,?,?,?,?,1,0)",
+                  (f"Kişi {i}", "Vali", f"Şehir{i} Valisi", "Önceki görev: Kars Valisi", "atama"))
+    m = briefing.build_atamalar(c, date(2026, 11, 25))
+    assert "Vali atamaları (10)" in m and "Şehir3 Valisi: Kişi 3 ← Kars Valisi" in m
