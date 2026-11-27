@@ -45,12 +45,19 @@ def build_atamalar(conn: sqlite3.Connection, d: date) -> str:
     rows = conn.execute(
         """SELECT a.*, i.title item_title, i.url item_url FROM appointments a
            JOIN items i ON i.id=a.item_id WHERE i.issue_date=? ORDER BY i.id, a.id""", (d.isoformat(),)).fetchall()
-    if not rows:
+    # Atama kararı var ama okunup ayrıştırılamadıysa sessizce geçme: bağlantıyla uyar (kaçırılmasın)
+    has_type = any(r[1] == "doc_type" for r in conn.execute("PRAGMA table_info(items)"))
+    unparsed = conn.execute(
+        """SELECT title, url FROM items i WHERE i.issue_date=? AND i.doc_type='atama'
+           AND NOT EXISTS (SELECT 1 FROM appointments a WHERE a.item_id=i.id) ORDER BY i.id""", (d.isoformat(),)).fetchall() if has_type else []
+    if not rows and not unparsed:
         return ""
     groups: dict[str, list] = {}
     for a in rows:
         groups.setdefault(a["item_id"], []).append(a)
-    lines = [f"👤 Resmi Gazete – Atama Kararları – {d.strftime('%d.%m.%Y')}", f"{len(rows)} kayıt"]
+    lines = [f"👤 Resmi Gazete – Atama Kararları – {d.strftime('%d.%m.%Y')}"]
+    if rows:
+        lines.append(f"{len(rows)} kayıt")
     for items in groups.values():
         lines += ["", f"📄 {items[0]['item_title']}", items[0]["item_url"]]
         if len(items) > 8:                       # toplu karar: gruplu, kısa satırlar
@@ -62,6 +69,8 @@ def build_atamalar(conn: sqlite3.Connection, d: date) -> str:
             pred = (f" ({a['predecessor'] if a['predecessor'].startswith('Önceki görev:') else 'yerine: ' + a['predecessor']})"
                 if a["predecessor"] else "")
             lines.append(f"{icon} {a['institution']}: {a['person']} {verb}{pred}")
+    for u in unparsed:
+        lines += ["", f"⚠️ Otomatik okunamadı, bağlantıdan bakın:", f"📄 {u['title']}", u["url"]]
     return "\n".join(lines)
 
 

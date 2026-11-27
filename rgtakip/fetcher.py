@@ -76,6 +76,13 @@ def wait_for_issue(d: date, kind: str = "normal") -> str | None:
 _PDF_STOP = ("ve", "bir", "olarak", "kararı", "karar", "maddesi", "gereğince", "hakkında", "atanmıştır")
 
 
+_MIN_LETTERS_PER_PAGE = 400   # dolu bir Resmî Gazete sayfası binlerce harf taşır; başlık-yalnızca sayfa yüzlerce değil onlarca
+
+
+def _letters(text: str) -> int:
+    return len(re.findall(r"[A-Za-zÇĞİÖŞÜçğıöşü]", text))
+
+
 def _pdf_garbled(text: str) -> bool:
     """Metin katmanı yok/bozuk mu? (Atama PDF'lerinde yazı resim olarak gömülü; pypdf boş/anlamsız döner.)"""
     letters = len(re.findall(r"[A-Za-zÇĞİÖŞÜçğıöşü]", text))
@@ -245,14 +252,22 @@ def pdf_to_text(data: bytes) -> str:
     ('.' veya ':' ile bitmeyen satır sonrakiyle birleşir)."""
     from pypdf import PdfReader
 
+    pages = 0
     try:
-        text = "\n".join((p.extract_text() or "") for p in PdfReader(io.BytesIO(data)).pages)
+        reader = PdfReader(io.BytesIO(data))
+        pages = len(reader.pages)
+        text = "\n".join((p.extract_text() or "") for p in reader.pages)
     except Exception as e:
         log.warning("PDF metin katmanı okunamadı: %s", type(e).__name__)
         text = ""
-    if _pdf_garbled(text):
-        log.info("PDF metin katmanı kullanılamıyor, OCR deneniyor")
-        text = ocr_pdf(data)
+    # Atama kararlarında yalnızca başlıklar ("Karar: 2026/400 … CUMHURBAŞKANI") metin katmanındadır, asıl metin resimdir.
+    # Başlıklardaki tekrarlı "Karar" kelimesi _pdf_garbled'ı yanıltır; bu yüzden sayfa başına harf sayısına da bakılır.
+    thin = pages > 0 and _letters(text) / pages < _MIN_LETTERS_PER_PAGE
+    if _pdf_garbled(text) or thin:
+        log.info("PDF metin katmanı yok/yetersiz (%d sayfa, %d harf), OCR deneniyor", pages, _letters(text))
+        ocr = ocr_pdf(data)
+        if _pdf_garbled(text) or _letters(ocr) > 1.3 * _letters(text):
+            text = ocr
     text = re.sub(r"[ \t]+", " ", text)
     return re.sub(r"(?<![.:|])\n(?!\n)", " ", text).strip()
 
